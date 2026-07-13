@@ -1,0 +1,2404 @@
+import resources.Environment as Env
+from src.model.enums.CommandName import CommandName
+from src.model.enums.Emoji import Emoji
+
+
+def surround_with_arrows(text: str) -> str:
+    """
+    Surround the text with left and right arrows
+    :param text: The text
+    :return: The text surrounded with left and right arrows
+    """
+    return Emoji.RIGHT_ARROW + text + Emoji.LEFT_ARROW
+
+
+def surround_with_expandable_quote(text: str) -> str:
+    """
+    Surround the text with expandable quote
+    :param text: The text
+    :return: The text surrounded with expandable quote
+    """
+
+    # Add quote to every line
+    text = text.replace("\n", "\n>")
+    # Remove double quotes
+    text = text.replace("\n>>", "\n>")
+
+    # Add quote to beginning of the text if not already present
+    if not text.startswith(">") and not text.startswith("\n"):
+        text = ">" + text
+
+    # Add || to the end of the text if not already present
+    if not text.endswith("||"):
+        text += "||"
+
+    return text
+
+
+ANTI_SPAM_WARNING = "Too many messages sent, please slow down..."
+SUPPORT_GROUP_DEEPLINK = f"[Support Group]({Env.SUPPORT_GROUP_LINK.get()})"
+
+COMMAND_NOT_IN_REPLY_ERROR = "This command can only be used in a reply to a message"
+COMMAND_IN_REPLY_TO_BOT_ERROR = "This command can't be used in reply to a bot"
+COMMAND_IN_REPLY_TO_ERROR = "This command can't be used in a reply to your own message"
+COMMAND_NOT_ACTIVE_ERROR = "This command is no longer available"
+COMMAND_NOT_ACTIVE_WITH_REPLACEMENT_ERROR = (
+    COMMAND_NOT_ACTIVE_ERROR + ". " + "Please Use {} instead"
+)
+COMMAND_FOR_NEW_WORLD_USERS_ERROR = "This command is only available for users in the New World"
+COMMAND_FOR_USERS_AFTER_LOCATION_ERROR = (
+    "This command is only available for users who have reached *{}*.\n\nCurrent location: *{}*"
+)
+COMMAND_FOR_USERS_AFTER_LOCATION_BOUNTY_ERROR = (
+    "\nCurrent bounty: ฿*{}*\nRequired bounty: ฿*{}*\nMissing bounty: ฿*{}*"
+)
+COMMAND_FOR_USERS_AFTER_LOCATION_ERROR_JOIN_CREW = (
+    "\n\n_Join a Crew to quickly level up your location!_"
+)
+COMMAND_WHILE_ARRESTED_ERROR = "This command is not available while you are arrested"
+COMMAND_ONLY_BY_CREW_CAPTAIN_ERROR = "This command is only available to Crew Captains"
+COMMAND_ONLY_BY_CREW_CAPTAIN_OR_FIRST_MATE_ERROR = (
+    "This command is only available to Crew Captains and First Mates"
+)
+COMMAND_NOT_IN_REPLY_TO_CREW_MEMBER_ERROR = (
+    "This command can only be used in reply to a message from a Crew Member"
+)
+COMMAND_ONLY_BY_BOSS_ERROR = (
+    "This command can only be used by an Admin, the Pirate King or a Legendary Pirate"
+)
+COMMAND_IN_REPLY_TO_ARRESTED_ERROR = (
+    "This command can't be used in reply to a message from an arrested user"
+)
+COMMAND_ONLY_BY_CHAT_ADMIN_ERROR = "This command can only be used by a chat admin"
+COMMAND_FEATURE_DISABLED_ERROR = (
+    "This feature is currently disabled in this {}.\nYou can ask an Admin to enable via"
+    f" {CommandName.SETTINGS.get_formatted()}"
+)
+COMMAND_NOT_ALLOWED_FROM_DEEPLINK_ERROR = "This command is not allowed from a deeplink"
+COMMAND_START_IN_GROUP_ERROR = "You can't use this command here.\n\nClick the button below 👇 to start the bot in DM."
+COMMAND_START_IN_GROUP_BUTTON = "Start"
+
+SHOW_USER_STATUS = "User: {}\nBounty: ฿*{}*{}\nRank: {}{}{}"
+SHOW_USER_STATUS_LOCATION = "\nLocation: {}"
+SHOW_USER_STATUS_FROZEN_BOUNTY = " \\(Frozen\\)"
+SHOW_USER_STATUS_RANK_PRISONER = Emoji.PRISONER + " Prisoner"
+SHOW_USER_STATUS_IMPEL_DOWN = "Impel Down"
+SHOW_USER_STATUS_PENDING_BOUNTY = "\nPending bounty: ฿*{}*"
+SHOW_USER_STATUS_REMAINING_SENTENCE = "\nRemaining sentence: {}"
+SHOW_USER_STATUS_PERMANENT_IMPEL_DOWN = "Permanent"
+SHOW_USER_STATUS_RESTRICTIONS = f"\n\n{Emoji.LOG_NEGATIVE}*Restrictions*{{}}"
+SHOW_USER_STATUS_FIGHT_IMMUNITY = "\nFight immunity: {}"
+SHOW_USER_STATUS_FIGHT_COOLDOWN = "\nFight cooldown: {}"
+SHOW_USER_STATUS_PLUNDER_IMMUNITY = "\nPlunder immunity: {}"
+SHOW_USER_STATUS_PLUNDER_COOLDOWN = "\nPlunder cooldown: {}"
+SHOW_USER_STATUS_WARLORD_REMAINING_TIME = "\nWarlord remaining time: {}"
+SHOW_USER_STATUS_CREW = "\nCrew: {}"
+SHOW_USER_STATUS_BOUNTY_DEDUCTIONS_TITLE = "\n\n*Bounty Deductions*"
+SHOW_USER_STATUS_BOUNTY_DEDUCTIONS_TEXT = "\n{}{} \\({}%\\)"
+SHOW_USER_STATUS_EXPIRED_LOAN = "Expired loan"
+SHOW_USER_STATUS_INCOME_TAX = "Income tax"
+SHOW_USER_STATUS_ADD_REPLY = "_Requested by {}_"
+SHOW_USER_STATUS_DEVIL_FRUIT = "\n\n*Devil Fruit*\n_{}_{}"
+SHOW_USER_STATUS_CREW_ABILITIES = "\n\n*Crew Abilities*{}"
+NOT_ALLOWED_TO_VIEW_REPLIED_STATUS = (
+    "You can only view the status of those who rank below you.\n\n{} rank: {}\n{} rank: {}"
+)
+SHOW_USER_STATUS_DAILY_REWARD = (
+    f"\n\n>You have a daily reward awaiting, use {CommandName.DAILY_REWARD.get_non_formatted()} in"
+    " private chat with the Bot or in a group to claim it!"
+)
+ROOKIE_STATUS_PRIVATE_CHAT_ONLY = "Rookies can only view their status in Private Chat"
+PRISONER_STATUS_PRIVATE_CHAT_ONLY = "Prisoners can only view their status in Private Chat"
+STATUS_PRIVATE_CHAT_KEY = "View in Private Chat"
+
+JOIN_SUPPORT_GROUP = f">For questions or suggestions, please join the {SUPPORT_GROUP_DEEPLINK}"
+
+LEADERBOARD = (
+    "*{}* Leaderboard for week *{}* of *{}*\n\n*Here are the top {} users with the most"
+    " bounties*:{}{}{}{}{}\n\n{}_Next bounty reset on {} \\(in {}\\)_\n" + JOIN_SUPPORT_GROUP
+)
+LEADERBOARD_USER_ROW = "\n\n{}°: {}\n{} - ฿*{}*"
+LEADERBOARD_CREW_ROW = "\n\n{}°: {}\n*Captain*: {}"
+LEADERBOARD_CREW = f"\n\n\n{Emoji.CREW}*Here are the top {{}} Crews*:{{}}"
+LEADERBOARD_LOCAL = "Local"
+LEADERBOARD_GLOBAL = "Global"
+LEADERBOARD_VIEW_GLOBAL_LEADERBOARD = "\n\n\n" + Emoji.GLOBE + "[Global Leaderboard]({})"
+LEADERBOARD_WARLORDS = "\n\n\n" + Emoji.LEADERBOARD_WARLORD + " *Warlords*"
+LEADERBOARD_WARLORD_ROW = "\n• [{}]({})"
+LEADERBOARD_LEGENDARY_PIRATES = "\n\n\n" + Emoji.LEADERBOARD_LEGENDARY_PIRATE + " *Legendary Pirates*"
+LEADERBOARD_LEGENDARY_PIRATE_ROW = "\n• [{}]({})"
+LEADERBOARD_RANK_PIRATE_KING = "Pirate King"
+LEADERBOARD_RANK_EMPEROR = "Emperor"
+LEADERBOARD_RANK_FIRST_MATE = "First Mate"
+LEADERBOARD_RANK_SUPERNOVA = "Supernova"
+LEADERBOARD_RANK_ROOKIE = "Rookie"
+LEADERBOARD_RANK_ADMIN = "Admiral"
+LEADERBOARD_RANK_LEGENDARY_PIRATE = "Legendary Pirate"
+LEADERBOARD_RANK_WARLORD = "Warlord"
+LEADERBOARD_VIEW_BOUNTIES_RESET = f"\n>{Emoji.INFO}*Bounties have been reset*\n"
+
+
+SAVE_MEDIA_NOT_IN_REPLY_TO_MEDIA = "This command can only be used in a reply to a media message"
+SAVED_MEDIA_UNKNOWN_TYPE = "Unknown media type. Available types are: *{}*"
+SAVE_MEDIA_SUCCESS = "Media saved as *{}*"
+
+GAME_WIN_LOSE_STATUS = (
+    "Current bounty: ฿*{}*\nFinal bounty if you win: ฿*{}*\nFinal bounty if you lose: ฿*{}*"
+)
+GAME_WIN_STATUS = "_You won ฿*{}*!_\n_Current bounty: ฿*{}*_"
+GAME_LOSE_STATUS = "_You lost ฿*{}*!_\n_Current bounty: ฿*{}*_"
+
+DOC_Q_GAME_NOT_ENOUGH_BOUNTY = (
+    "You need a bounty of at least ฿*{}* to summon Doc Q.\n\n_Current bounty: ฿*{}*_"
+)
+DOC_Q_GAME_LIMIT_REACHED = "You have reached the limit of Doc Q games. You can play again in *{}*"
+DOC_Q_GAME_START = (
+    "Hi {}, allow me to offer you an apple.\nIf you choose the right one, you will win ฿*{}*, else"
+    " you will lose ฿*{}*.\nChoose wisely!" + "\n\n" + GAME_WIN_LOSE_STATUS
+)
+
+DOC_Q_GAME_NOT_FOUND = "Doc Q game not found"
+DOC_Q_GAME_CANCEL = "See you next time!"
+DOC_Q_GAME_WIN = (
+    "You're...haha...cough! cough! a really lucky one {}.\nLet's go, Stronger...agh..!"
+    + "\n\n{}"
+    + GAME_WIN_STATUS
+)
+DOC_Q_GAME_LOSE = (
+    "Seems like today wasn't your lucky day {}...cough!...only the *{}°* apple wasn't rigged"
+    " haha...\nDon't be so reckless or you won't survive long in these treacherous seas!\nLet's"
+    " go, Stronger...agh..!" + "\n\n{}" + GAME_LOSE_STATUS
+)
+
+# Error messages
+USER_NOT_FOUND = "User not found"
+UNRECOGNIZED_SCREEN = "Unrecognized command"
+SAVED_MEDIA_NOT_FOUND = "Saved Media not found"
+UNKNOWN_EXTRA_STEP = "Unknown extra step"
+PRIVATE_STEP_NOT_SET = "Private step not set"
+SAVED_USER_DATA_NOT_FOUND = "Saved user data not found"
+RESTART_BOT = "Oops, looks like there was some error. Please restart the Bot"
+FORWARD_TO_SUPPORT_GROUP = f". Please forward this message to the {SUPPORT_GROUP_DEEPLINK}"
+
+# Keyboard options
+KEYBOARD_OPTION_CANCEL = Emoji.CANCEL + " Cancel"
+KEYBOARD_OPTION_DELETE = Emoji.DELETE + " Delete"
+KEYBOARD_OPTION_CLOSE = Emoji.CLOSE + " Close"
+KEYBOARD_OPTION_ACCEPT = Emoji.ACCEPT + " Accept"
+KEYBOARD_OPTION_REJECT = Emoji.REJECT + " Reject"
+KEYBOARD_OPTION_FIGHT = Emoji.FIGHT + " Fight"
+KEYBOARD_OPTION_PLUNDER = Emoji.PLUNDER + " Plunder"
+KEYBOARD_OPTION_RETREAT = Emoji.RETREAT + " Retreat"
+KEYBOARD_OPTION_BACK = Emoji.BACK + " Back"
+KEYBOARD_OPTION_YES = Emoji.YES + " Yes"
+KEYBOARD_OPTION_NO = Emoji.NO + " No"
+KEYBOARD_OPTION_SEND_REQUEST = Emoji.YES + " Send request"
+KEYBOARD_OPTION_RESET = Emoji.RESET + " Reset"
+KEYBOARD_OPTION_SCOUT = Emoji.BINOCULARS + " Scout"
+KEYBOARD_OPTION_NEW_SCOUT = Emoji.BINOCULARS + " New Scout"
+KEYBOARD_OPTION_CHOOSE = Emoji.ENABLED + " Choose"
+
+TEXT_YES = "Yes"
+TEXT_NO = "No"
+TEXT_WON = "won"
+TEXT_LOST = "lost"
+TEXT_IT_WAS = "it was"
+TEXT_THEY_WERE = "they were"
+TEXT_FROM = "from"
+TEXT_TO = "to"
+TEXT_TOPIC = "Topic"
+TEXT_GROUP = "Group"
+TEXT_NOT_SET = "Not set"
+TEXT_RANDOM = "Random"
+TEXT_ONLY = "Only {}"
+TEXT_YOU = "You"
+TEXT_YOUR = "Your"
+TEXT_STOLE = "stole"
+TEXT_OWE = "[owe]({})"
+TEXT_OWE_NOTHING_IMMUNE = "owed nothing \\(immune\\)"
+TEXT_NEVER = "Never"
+TEXT_YOURSELF = "yourself"
+
+TEXT_DAY = "day"
+TEXT_DAYS = "days"
+
+EXCEPTION_CHAT_ID_NOT_PROVIDED = "chat_id is None and update.effective_chat.id is None"
+EXCEPTION_NO_EDIT_MESSAGE = "new_message is False but update.callback_query is None"
+
+KEYBOARD_NOT_FOUND = "Keyboard not found"
+KEYBOARD_USE_UNAUTHORIZED = "You are not authorized to use this keyboard"
+
+SWAP_SUCCESSFUL = "Swap successful"
+RESET_SUCCESSFUL = "Reset successful"
+VIEW_ALL_WITH_EMOJI = "\n>" + Emoji.RIGHT_ARROW + " [View all]({})"
+
+LOCATION_CHANGE_REGION_PROPOSAL = "{}{} would you like to move to {}?"
+LOCATION_CHANGE_REGION_PROPOSAL_REJECTED = "{}You can move to {} later with {} command"
+LOCATION_NEW_WORLD_REQUEST_REJECTED_NOT_ENOUGH_BOUNTY = (
+    "You need a bounty of at least ฿*{}* to move to the New World."
+)
+LOCATION_ALREADY_IN_REGION = "You are already in {}"
+LOCATION_CANNOT_CHANGE_REGION = "You can change region in *{}*"
+LOCATION_INVALID_CHANGE_REGION_REQUEST = "Invalid region"
+
+CHALLENGER = "Challenger"
+OPPONENT = "Opponent"
+SENDER = "Sender"
+RECEIVER = "Receiver"
+
+FIGHT_NOT_FOUND = "Fight not found"
+FIGHT_OPPONENT_NOT_FOUND = "Opponent not found"
+FIGHT_CANNOT_FIGHT_USER = "You can't fight this user"
+FIGHT_CANNOT_FIGHT_CREW_MEMBER = "You can't fight a member of your Crew"
+FIGHT_USER_IN_COOLDOWN = "Fight cooldown active. You can initiate a fight in *{}*"
+FIGHT_CONFIRMATION_ODDS_RECALCULATED = (
+    "\n_*\\(Probability recalculated with opponent's Crew average bounty\\)*_"
+)
+FIGHT_CONFIRMATION_REQUEST = (
+    "{} are you sure you want to fight {}?\nI predict a {}% probability of {}."
+    + "{}\n\n"
+    + GAME_WIN_LOSE_STATUS
+)
+FIGHT_CONFIRMATION_OUTCOME_VICTORY = "victory"
+FIGHT_CONFIRMATION_OUTCOME_DEFEAT = "defeat"
+FIGHT_WIN = (
+    "Just as I foresaw, {} won the fight against {}.\nI don't need the cards to tell me that your"
+    " strength is incredible..." + "\n\n" + GAME_WIN_STATUS
+)
+FIGHT_LOSE = (
+    "Just as I foresaw, {} lost the fight against {}.\nLooks like your luck ran out..."
+    + "\n\n"
+    + GAME_LOSE_STATUS
+)
+FIGHT_CONFIRMATION_RETREAT = "You have successfully retreated"
+FIGHT_REVENGE_TOO_LATE = (
+    "You can revenge a fight only if less than {} has passed since the attack.\n\nPassed time: {}"
+)
+FIGHT_REVENGE_ALREADY_REVENGED = "This fight has already been revenged\n\n[View revenge]({})"
+FIGHT_PLUNDER_SCOUT_FEE = "\n\nScouting fee: ฿*{}*\nCurrent bounty: ฿*{}*"
+FIGHT_PLUNDER_GROUP_INSUFFICIENT_SCOUT_BOUNTY = (
+    "Insufficient bounty to scout the opponent." + FIGHT_PLUNDER_SCOUT_FEE
+)
+FIGHT_PLUNDER_PRIVATE_INSUFFICIENT_SCOUT_BOUNTY = (
+    "Insufficient bounty to scout for opponents." + FIGHT_PLUNDER_SCOUT_FEE
+)
+FIGHT_PLUNDER_SCOUT_USER_GROUP = "Are you sure you want to scout {}?\nIt will cost you ฿*{}*"
+FIGHT_PLUNDER_SCOUT_SEARCH = "Would you like to scout for an opponent?" + FIGHT_PLUNDER_SCOUT_FEE
+FIGHT_PLUNDER_SCOUT_SEARCH_USER = (
+    "Opponent: *{}*\nWin probability: *{}%*\nPotential win: ฿*{}*\nPotential loss: ฿*{}*{}\n\nNext"
+    " scouting fee:  ฿*{}*\nCurrent bounty: ฿*{}*"
+)
+FIGHT_PLUNDER_SCOUT_SEARCH_USER_NEW = "New opponent found!\n\n"
+FIGHT_PLUNDER_SCOUT_USER_JAIL_TIME = "\nPotential jail time: *{}*"
+FIGHT_PLUNDER_SCOUT_NO_OPPONENT_FOUND = (
+    "No opponent found, please try again later.\n\n_No scouting fee was deducted_"
+)
+FIGHT_PLUNDER_SCOUT_NEXT_FEE = "\n\nNext scouting fee: ฿*{}*"
+
+ENABLED = Emoji.ENABLED + " Enabled"
+DISABLED = Emoji.DISABLED + " Disabled"
+CURRENT_SETTING = "Current setting: {}"
+
+INLINE_QUERY_SEND_ITEM = "Send item"
+
+# General
+KEY_MANAGE = "Manage"
+KEY_VIEW = "View"
+KEY_CREATE = Emoji.CREATE + " Create"
+KEY_SAVE = Emoji.SAVE + " Save"
+KEY_ENABLE = Emoji.ENABLED + " Enable"
+KEY_DISABLE = Emoji.DISABLED + " Disable"
+KEY_OPEN = "Open"
+KEY_CLOSE = Emoji.CLOSE + " Close"
+KEY_SHARE = Emoji.SHARE + " Share"
+KEY_SEND_TO_GROUP = Emoji.GROUP + " Send to group"
+KEY_SET_RESULT = "Set result"
+KEY_CONFIRM = "Confirm"
+KEY_MODIFY = "Modify"
+KEY_RESET = "Reset"
+KEY_SHOP = Emoji.SHOP + " Shop"
+KEY_REMOVE = Emoji.DELETE + " Remove"
+KEY_BUY = "Buy"
+KEY_MANAGE_DEVIL_FRUIT = "Manage Devil Fruit"
+KEY_JOIN_A_CREW = "Join a Crew"
+KEY_VIEW_LOG = "View log"
+
+TXT_SETTINGS = "Which setting would you like to change?"
+
+# Private chat
+PVT_TXT_START = (
+    "Welcome to One Piece Bounty Bot, a Bot that brings the Bounty System to any Chat Group!"
+    f"\n\n{JOIN_SUPPORT_GROUP}"
+)
+PVT_KEY_SETTINGS = Emoji.SETTINGS + " Settings"
+PVT_KEY_STATUS = Emoji.STATUS + " Status"
+PVT_KEY_SETTINGS_LOCATION_UPDATE = "Location update"
+PVT_TXT_SETTINGS_LOCATION_UPDATE = (
+    "Do you want to receive an update when you move to a new location?"
+)
+PVT_KEY_CREW = Emoji.CREW + " Crew"
+PVT_KEY_CREW_MEMBERS = "Members"
+PVT_KEY_CREW_MEMBER_VIEW = "View member"
+PVT_KEY_CREW_LEAVE = "Leave"
+PVT_KEY_CREW_SEARCH = Emoji.SEARCH + " Search"
+PVT_KEY_CREW_SEARCH_JOIN = "Join"
+PVT_KEY_CREW_EDIT_NAME = "Name"
+PVT_KEY_CREW_EDIT_DESCRIPTION = "Description"
+PVT_KEY_CREW_EDIT_REQUIRED_BOUNTY = "Required bounty"
+PVT_KEY_CREW_EDIT_ALLOW_VIEW_IN_SEARCH = "{} Allow search"
+PVT_KEY_CREW_EDIT_ALLOW_JOIN_FROM_SEARCH = "{} Allow join"
+PVT_KEY_CREW_EDIT_AUTO_ACCEPT_JOIN = "{} Auto-accept join"
+PVT_KEY_CREW_EDIT_ALLOW_DAVY_BACK_FIGHT_REQUEST = "{} Allow Davy Back Fight request"
+PVT_KEY_CREW_EDIT_AUTO_ACCEPT_DAVY_BACK_FIGHT_REQUEST = "{} Auto-accept Davy Back Fight request"
+PVT_KEY_CREW_EDIT_DAVY_BACK_FIGHT_DEFAULT_PARTICIPANTS = "DBF default participants"
+PVT_KEY_CREW_DISBAND = Emoji.DELETE + " Disband"
+PVT_KEY_CREW_MEMBER_REMOVE = "Expel"
+PVT_KEY_CREW_MEMBER_FIRST_MATE_PROMOTE = "Promote to First Mate"
+PVT_KEY_CREW_MEMBER_FIRST_MATE_DEMOTE = "Demote from First Mate"
+PVT_KEY_CREW_MEMBER_CAPTAIN_PROMOTE = "Promote to Captain"
+KEY_POST_BAIL = "Post bail"
+PVT_KEY_CREW_ABILITY = "Abilities"
+PVT_KEY_CREW_ABILITY_ACTIVATE = "Activate"
+PVT_KEY_CREW_ABILITY_RANDOM = Emoji.DICE + " Random"
+PVT_KEY_CREW_POWERUP = "Power-up"
+PVT_KEY_CREW_LEVEL = "Level"
+PVT_KEY_CREW_LEVEL_UP = "Level up"
+PVT_KEY_CREW_DAVY_BACK_FIGHT = Emoji.FIGHT + " Davy Back Fight"
+PVT_KEY_CREW_DAVY_BACK_FIGHT_EDIT_PARTICIPANTS = "Edit participants"
+PVT_KEY_CREW_DAVY_BACK_FIGHT_EDIT_DURATION = "Edit duration"
+PVT_KEY_CREW_DAVY_BACK_FIGHT_EDIT_PENALTY = "Edit penalty"
+PVT_KEY_CREW_DAVY_BACK_FIGHT_PARTICIPANT_SELECT = "Choose players"
+PVT_KEY_CREW_DAVY_BACK_FIGHT_PARTICIPANT_VIEW = "Players"
+PVT_KEY_CREW_DAVY_BACK_FIGHT_CONSCRIPT_OPPONENT = "Conscript opponent"
+PVT_KEY_SETTINGS_NOTIFICATIONS = "Notifications"
+PVT_TXT_SETTINGS_NOTIFICATIONS = "Which category of notifications would you like to change?"
+PVT_TXT_SETTINGS_NOTIFICATIONS_TYPE = "Which notification would you like to change?"
+PVT_KEY_MANAGE_NOTIFICATION_SETTINGS = "Manage notification settings"
+PVT_KEY_SETTINGS_TIMEZONE = "Time zone"
+PVT_TXT_SETTINGS_TIMEZONE = (
+    "\nCurrent time: *{}*\nCurrent timezone: *{}* \\({}\\)\n\nTo set a new time zone, send a"
+    " location name \\(city, region, state or country\\)"
+)
+PVT_TXT_SETTINGS_TIMEZONE_INVALID = (
+    "Invalid location. Please send a correct location name \\(city, region, state or country\\)"
+)
+PVT_KEY_SETTINGS_TIMEZONE_RESET = "Reset"
+PVT_TXT_SETTINGS_TIMEZONE_UNKNOWN = "Default - " + Env.TZ.get()
+PVT_KEY_SETTINGS_LANGUAGE = "Language"
+PVT_TXT_SETTINGS_LANGUAGE = (
+    "Choose the language I should use for messages sent in private chat with you."
+    "\n\nCurrent language: *{}*"
+)
+
+PVT_KEY_LOGS = Emoji.LOGS + " Logs"
+PVT_TXT_LOGS = "Which log would you like to view?"
+PVT_KEY_LOGS_STATS = Emoji.STATS + " Stats"
+PVT_KEY_PREVIOUS_PAGE = Emoji.LEFT_ARROW
+PVT_KEY_NEXT_PAGE = Emoji.RIGHT_ARROW
+PVT_KEY_PREDICTION = Emoji.PREDICTION + " Predictions"
+PVT_KEY_PREDICTION_DETAIL_PLACE_BET = "Place bet"
+PVT_KEY_PREDICTION_DETAIL_REMOVE_BET = "Remove bet"
+PVT_KEY_PREDICTION_DETAIL_EDIT = "Edit"
+PVT_KEY_PREDICTION_CREATE_ALLOW_MULTIPLE_CHOICES = "Allow multiple choices"
+PVT_KEY_PREDICTION_CREATE_ALLOW_BET_WITHDRAWAL = "Allow bet withdrawal"
+PVT_KEY_PREDICTION_CREATE_IS_PUBLIC = "Public"
+PVT_KEY_PREDICTION_CREATE_SET_CLOSE_DATE = Emoji.PREDICTION_CLOSED + " Set closing date"
+PVT_KEY_PREDICTION_CREATE_REMOVE_CLOSE_DATE = Emoji.PREDICTION_CLOSED + " Remove closing date"
+PVT_KEY_PREDICTION_CREATE_SET_CUT_OFF_DATE = Emoji.PREDICTION_CUT_OFF + " Set cut-off date"
+PVT_KEY_PREDICTION_CHANGE_POLL = Emoji.CHANGE + " Change poll"
+PVT_KEY_PREDICTION_NO_CORRECT_OPTION = "No correct option"
+PVT_KEY_DEVIL_FRUIT = Emoji.DEVIL_FRUIT + " Devil Fruit"
+PVT_KEY_DEVIL_FRUIT_DETAIL_EAT = "Eat"
+PVT_KEY_DEVIL_FRUIT_DETAIL_SELL = "Sell"
+PVT_KEY_DEVIL_FRUIT_DETAIL_DISCARD = "Discard"
+PVT_KEY_DEVIL_FRUIT_VIEW_IN_SHOP = "View in shop"
+PVT_KEY_GO_TO_MESSAGE = "Go to message"
+PVT_KEY_BOUNTY_LOAN = Emoji.MONEY + " Loan"
+PVT_KEY_BOUNTY_LOAN_DETAIL_PAY = "Pay"
+PVT_KEY_BOUNTY_LOAN_DETAIL_FORGIVE = "Forgive"
+PVT_KEY_BOUNTY_LOAN_DETAIL_PAY_ALL = "Pay all"
+PVT_KEY_STRING_FILTER_REMOVE = "Remove {} filter"
+PVT_KEY_SHOW_ALL = "Back to list"
+PVT_KEY_FIGHT_REVENGE = Emoji.FIGHT + " Revenge"
+PVT_KEY_PLUNDER_REVENGE = Emoji.PLUNDER + " Revenge"
+
+GRP_KEY_DEVIL_FRUIT_BUY = Emoji.MONEY + " Buy"
+GRP_KEY_SETTINGS_FEATURES = "Features"
+GRP_KEY_SETTINGS_AUTO_DELETE = "Auto delete"
+GRP_KEY_SETTINGS_LANGUAGE = "Language"
+GRP_TXT_SETTINGS_LANGUAGE = (
+    "Choose the language I should use for messages sent in this group."
+    "\n\nCurrent language: *{}*"
+)
+GRP_TXT_FEATURES = "{}Which Bounty System features would you like to enable in this {}?"
+GRP_KEY_PREDICTION_BET_IN_PRIVATE_CHAT = "Bet in private chat"
+GRP_KEY_PREDICTION_VIEW_IN_PRIVATE_CHAT = "View in private chat"
+GRP_KEY_GAME_PLAY = "Play"
+GRP_KEY_DAILY_REWARD_PRIZE_ACCEPT = Emoji.MONEY + " Accept offer"
+GRP_KEY_DAILY_REWARD_PRIZE_RANDOM = Emoji.GIFT + " Random prize"
+GRP_KEY_GAME_START_GLOBAL = "Start immediately as global"
+
+DATETIME_EXAMPLES = """
+Write the date using this format:
+dd/mm/yy hh:mm
+
+*Examples*:
+• 1/4/2022 22:30
+• in 10 days 5 hours 2 minutes
+• Tomorrow at 12:00
+
+Current time: *{}*
+Current time zone: *{}* \\({}\\)
+[Change time zone]({})
+""".strip()
+
+DATETIME_EXAMPLES_NO_DURATION = """
+Write the date using this format:
+dd/mm/yy hh:mm
+
+*Examples*:
+• 1/4/2022 22:30
+• 10 hours ago
+• Yesterday at 12:00
+
+Current time: *{}*
+Current time zone: *{}* \\({}\\)
+[Change time zone]({})
+""".strip()
+
+DATETIME_REMAINING = "{} remaining"
+DATETIME_REMAINING_PARENTHESIS = f" _\\({DATETIME_REMAINING}\\)_"
+DATETIME_ELAPSED = "{} ago"
+DATETIME_ELAPSED_PARENTHESIS = f" _\\({DATETIME_ELAPSED}\\)_"
+
+ITEM_LINK = "[{}]({})"
+
+ACTION_INSUFFICIENT_BOUNTY = "Insufficient bounty, you need at least ฿*{}*"
+ACTION_WAGER_LESS_THAN_MIN = "The minimum amount is ฿*{}*"
+ACTION_INVALID_WAGER_AMOUNT = (
+    "Invalid amount. Make sure it is a number with only '.' or ',' as decimal separator or with a"
+    " valid magnitude.\n\nExample: \n- 10.000.000 or 10,000,000\n- 10k, 10thousand, 10m,"
+    " 10million, 10b, 10billion"
+)
+ACTION_INVALID_DURATION = (
+    "Invalid duration. Make sure it is a number with only '.' or ',' as decimal separator or with"
+    " a valid unit.\n\nExample: \n - 1min, 1h, 1d, 1week"
+)
+
+SYSTEM_UPDATE = (
+    f"{Emoji.CONFETTI}New update{Emoji.CONFETTI}"
+    "\n\n*{}*\n\n{}"
+    "\n\n[View full changelog]({})"
+    f"\n\n{Emoji.HELP}{SUPPORT_GROUP_DEEPLINK}"
+)
+
+GAME_CANNOT_CHALLENGE_USER = "You can't challenge this user"
+GAME_CHOOSE_GAME = "Which game would you like to play?"
+GAME_NO_WAGER_AMOUNT = (
+    "You need to specify a wager amount.\n\nExample:"
+    f" {CommandName.GAME.get_formatted()} 10.000.000"
+)
+
+GAME_NOT_FOUND = "Game not found"
+GAME_REQUEST = (
+    "{}, you have been challenged by {} to play *{}* with a wager of"
+    " ฿*{}*.\n\n_*Description*: {}_\n\nWould you like to accept?\n\nIf the challenge is not"
+    f" accepted within {Env.GAME_CONFIRMATION_TIMEOUT.get_int()} seconds, it will be automatically"
+    " rejected."
+)
+GAME_REQUEST_OPEN_HEADER = (
+    "{} is challenging anyone to play *{}* with a wager of ฿*{}*."
+    "\n\n_*Description*: {}_"
+    "\n\nPress the button below to accept."
+)
+GAME_REQUEST_OPEN = (
+    GAME_REQUEST_OPEN_HEADER + "\n\nIf the challenge is not accepted within"
+    f" {Env.GAME_CONFIRMATION_TIMEOUT.get_int()} seconds, it will be automatically rejected."
+    "\n\n>You can start this game as a global challenge, "
+    "allowing you to play immediately while another player will challenge your result later"
+)
+GAME_CANCELED = "Game cancelled"
+GAME_CHALLENGE_REJECTED = "{} has rejected the challenge"
+GAME_INVALID = "Invalid game"
+GAME_NOT_SELECTED_NAME = "Not selected"
+GAME_TEXT = "*{}*\n\n_*Description*: {}_\n\n{} vs {}\nWager: ฿*{}*{}\n\n{}"
+GAME_TEXT_WITHOUT_PLAYERS = "*{}*\n\n_*Description*: {}_\n\nWager: ฿*{}*{}\n\n{}"
+GAME_STATUS_AWAITING_CHOICE = "Status: Awaiting choice"
+GAME_STATUS_AWAITING_USER_CHOICE = "Status: Awaiting {}'s choice"
+GAME_RESULT_DRAW = "Result: Draw"
+GAME_RESULT_WIN = Emoji.WINNER + " {} won"
+GAME_NOT_YOUR_TURN = "It's not your turn"
+GAME_TURN = "Status: {}'s turn"
+GAME_ENDED = "This game has ended"
+GAME_CANNOT_INITIATE = (
+    "Challenge limit reached, make sure you have canceled any pending challenges.\nYou can"
+    " initiate another challenge in *{}*, but in the meantime you can ask another user to"
+    " challenge you or accept a Global Challenge if available."
+)
+GAME_GLOBAL_COOLDOWN =(
+    "Global challenge acceptance limit reached.\n\n"
+    "You can accept another global challenge in *{}*, but in the meantime you can accept normal"
+    " challenges or you can initiate a challenge yourself."
+)
+GAME_PENDING_KEY = "Pending challenge"
+GAME_FORCED_END = (
+    "This game has ended due to bounty reset or inactivity. The wagers has been returned to the"
+    " players."
+)
+
+GAME_STATUS_ND = "Not defined"
+GAME_STATUS_IN_PROGRESS = "In progress"
+GAME_STATUS_WON = "Won"
+GAME_STATUS_LOST = "Lost"
+GAME_STATUS_DRAW = "Draw"
+GAME_STATUS_AWAITING_SELECTION = "Awaiting game selection"
+GAME_STATUS_AWAITING_OPPONENT_CONFIRMATION = "Awaiting opponent confirmation"
+GAME_STATUS_FORCED_END = "End due to bounty reset or inactivity"
+GAME_STATUS_COUNTDOWN_TO_START = "Countdown to start"
+GAME_STATUS_WINNING = "Winning"
+GAME_STATUS_LOSING = "Losing"
+GAME_COUNTDOWN = "The game will start in *{}*"
+GAME_STARTED = "Game in progress"
+GAME_TIMEOUT = (
+    "This game was canceled due to timeout while awaiting opponent confirmation.\n\nThe wager has"
+    " been returned to the challenger."
+)
+GAME_INPUT_NOT_PLAYER = "You are not a player of this game"
+GAME_INPUT_GAME_FINISHED = "This game has ended"
+GAME_INPUT_COUNTDOWN = (
+    "The game has not started yet.\nStay on this chat as to not miss the first message!"
+)
+GAME_RESULT_CHARACTER = "Character: {}"
+GAME_RESULT_TERM = "Word: {}"
+GAME_DIFFICULTY = "\nDifficulty: {}"
+GAME_DIFFICULTY_EASY = "Easy"
+GAME_DIFFICULTY_MEDIUM = "Medium"
+GAME_DIFFICULTY_HARD = "Hard"
+GAME_GLOBAL_ITEM_TEXT = "{} - ฿{}"
+GAME_GLOBAL_ITEM_DEEPLINK = "{}[{}]({})"
+GAME_GLOBAL_ALREADY_ACCEPTED = "This challenge has already been accepted by another player"
+GAME_GLOBAL_OPPONENT_CONFIRMATION_REQUEST = (
+    "_*Description*: {}_"
+    "\n\n*Opponent*: {}"
+    "\n*Wager*: ฿{}"
+    "\n\nDo you want to accept this challenge?"
+)
+GAME_GLOBAL_CHALLENGE_ACCEPTED_ALERT = "Challenge accepted"
+GAME_GLOBAL_CHALLENGE_ITEM_TEXT_FILL_IN = "Global Challenge"
+GAME_AUTO_MOVE_WARNING = "\n\n>In case of no selection, a worst possible move will be automatically made after {}"
+GAME_POINTS = "{} points: *{}/{}*"
+GAME_POINTS_FINISHED = " \\(Finished\\)"
+GAME_OPPONENT_AND_WAGER = "\n\n*Opponent*: {}" "\n*Wager*: ฿{}"
+GAME_GLOBAL_CURRENT_TIME = "Current time: {}"
+GAME_GLOBAL_COMPLETION_TIME = "Completion time: {}"
+GAME_GLOBAL_OPPONENT_TIME = "Opponent time: {}"
+GAME_GLOBAL_REMAINING_TIME = "\nRemaining time: *{}*"
+GAME_GLOBAL_WAIT_FOR_OPPONENT = (
+    "Game ended, you will be notified of the result once your opponent has finished too"
+)
+GAME_GLOBAL_PENDING_CHALLENGER = (
+    "\n\n>You will be notified once another player has accepted the game and finished playing, or use the below "
+    "Share button to invite a friend to challenge your result"
+)
+GAME_GLOBAL_PENDING_OPPONENT = "\n\n>You will be notified once the challenger has finished playing"
+GAME_GLOBAL_GUESS_WAIT_OPPONENT = (
+    "\n\n>You will be notified of the result once your opponent has finished too"
+)
+GAME_GLOBAL_GUESS_ALREADY_GUESSED = "You have already guessed correctly.{}{}"
+GAME_GLOBAL_INLINE_RESULT_SHARE = "Share game"
+
+ROCK_PAPER_SCISSORS_GAME_NAME = "Rock Paper Scissors"
+ROCK_PAPER_SCISSORS_GAME_DESCRIPTION = (
+    "Try to beat your opponent by choosing rock, paper or scissors. \nRock beats scissors,"
+    " scissors beats paper and paper beats rock."
+)
+ROCK_PAPER_SCISSORS_CHOICE = "You chose {}"
+ROCK_PAPER_SCISSORS_CHOICE_ROCK = Emoji.ROCK + " Rock"
+ROCK_PAPER_SCISSORS_CHOICE_PAPER = Emoji.PAPER + " Paper"
+ROCK_PAPER_SCISSORS_CHOICE_SCISSORS = Emoji.SCISSORS + " Scissors"
+ROCK_PAPER_SCISSORS_CHOICES = "{} chose {} \n{} chose {}\n\n"
+ROCK_PAPER_SCISSORS_PENDING_OPPONENT = (
+    "\n\n>You will be notified once the challenger has chosen an option"
+)
+
+RUSSIAN_ROULETTE_GAME_NAME = "Russian Roulette"
+RUSSIAN_ROULETTE_GAME_DESCRIPTION = "Try to avoid choosing the chamber with the bullet."
+
+RUSSIAN_ROULETTE_GAME_CHAMBER_ALREADY_FIRED = (
+    "This chamber has already been fired. Choose another one."
+)
+RUSSIAN_ROULETTE_GAME_BULLET_SHOT = "You've died"
+RUSSIAN_ROULETTE_GAME_BULLET_NOT_SHOT = "You've survived another round"
+
+GUESS_GAME_INPUT_CAPTION_HINT = "\n\n" + Emoji.NEW + "*Hint*: {}"
+GUESS_GAME_INPUT_CAPTION_SECONDS_TO_NEXT_HINT = "\n\n>In *{}* seconds, a hint will be sent"
+GUESS_GAME_INPUT_CAPTION_SECONDS_TO_NEXT_IMAGE = (
+    "\n\n>In *{}* seconds, an easier variation will be sent"
+)
+GUESS_GAME_INPUT_CAPTION_SECONDS_TO_NEXT_LIFE_1 = ">In *{}* seconds, a new life will be issued"
+GUESS_GAME_INPUT_CAPTION_SECONDS_TO_NEXT_LIFE_2 = ">A new life will be issued every {} seconds"
+GUESS_GAME_INPUT_CAPTION_SECONDS_TO_NEXT_DETAIL = (
+    "\n\n>In *{}* seconds, a new detail will be given"
+)
+
+GUESS_CHARACTER_GAME_INPUT_CAPTION = (
+    ">_Send your guesses as text messages, you will be notified if you are correct._"
+    f"\n>_The name must be the same as the one used on [One Piece Wiki]({Env.ONE_PIECE_WIKI_URL.get()})_"
+)
+GUESS_TERM_GAME_INPUT_CAPTION = (
+    ">_Send your guesses as text messages, you will be notified if you are correct._"
+    f"\n>_The term must be the same as the one used on [One Piece Wiki]({Env.ONE_PIECE_WIKI_URL.get()})_"
+)
+GUESS_GAME_CORRECT_ANSWER = f"Congratulations, you guessed correctly{Emoji.CONFETTI}\n\n{{}}"
+GUESS_GAME_OPPONENT_CORRECT_ANSWER = (
+    f"Oops, your opponent was able to guess before you😔\nBetter luck next time!\n\n{{}}"
+)
+
+WHOS_WHO_GAME_NAME = "Who's Who"
+WHOS_WHO_GAME_DESCRIPTION = (
+    "Guess the blurred character. \nEvery {} seconds, a less blurred image will be sent until the"
+    " character is fully revealed.\nThis game is played in private chat with the Bot."
+)
+
+SHAMBLES_GAME_NAME = "Shambles"
+SHAMBLES_GAME_DESCRIPTION = (
+    "Guess the One Piece related word from a crossword puzzle. \nEvery {} seconds, an extra letter"
+    " will be removed from the puzzle making it easier to guess.\nThis game is played in private"
+    " chat with the Bot."
+)
+
+GUESS_OR_LIFE_GAME_NAME = "Guess or Life"
+GUESS_OR_LIFE_GAME_DESCRIPTION = (
+    "Guess the missing letters of the One Piece related word, any wrong guess will cost a life.\nA"
+    " new life will be issued every {} seconds."
+)
+GUESS_OR_LIFE_GAME_CORRECT_LETTER = f"{Emoji.CORRECT} Correct letter!"
+GUESS_OR_LIFE_GAME_WRONG_LETTER = f"{Emoji.LOG_NEGATIVE} Wrong letter"
+GUESS_OR_LIFE_GAME_WORD_LIVES = "{}{}\nLives: {}{}"
+GUESS_OR_LIFE_GAME_NAME_WORD = "*{}*\n{}"
+GUESS_OR_LIFE_GAME_NAME_WORD_LIVES = "*{}*\n" + GUESS_OR_LIFE_GAME_WORD_LIVES
+GUESS_OR_LIFE_GAME_REMAINING_USED_LETTERS = "\n\nRemaining letters: {}\n\nUsed letters: {}"
+GUESS_OR_LIFE_GAME_PRIVATE_RECAP = "{}\n\n{}"
+
+PUNK_RECORDS_GAME_NAME = "Punk Records"
+PUNK_RECORDS_GAME_DESCRIPTION = (
+    "Guess the One Piece related character from details about them. \nEvery {} seconds, a new"
+    " detail will be revealed making it easier to guess.\nThis game is played in private chat with"
+    " the Bot."
+)
+PUNK_RECORDS_GAME_RECAP = "{}{}"
+PUNK_RECORDS_GAME_RECAP_DETAIL = "\n{}*{}*: {}"
+PUNK_RECORDS_GAME_RECAP_DETAIL_LIST = "\n*{}*\n{}"
+
+PREDICTION_NOT_FOUND = "Prediction not found"
+PREDICTION_NOT_IN_NEW_STATUS = "Prediction not in NEW status"
+PREDICTION_NOT_SENT = "Prediction not sent"
+PREDICTION_NOT_IN_SENT_STATUS = "Prediction not in SENT status"
+PREDICTION_NOT_IN_BETS_CLOSED_STATUS = "Prediction not in BETS\\_CLOSED status"
+UNKNOWN_PREDICTION_ACTION = "Unknown prediction action"
+PREDICTION_TEXT = "*{}*\n{}\n\n*Total wager*: ฿{}\n*Status*: {}{}{}{}{}"
+PREDICTION_CREATE_RECAP = "*{}*\n{}{}"
+PREDICTION_TEXT_OPTION = "\n{}. {}"
+PREDICTION_TEXT_OPTION_WITH_PERCENTAGE = PREDICTION_TEXT_OPTION + " \\(*{}%*\\){}"
+PREDICTION_CLOSING_DATE = "\n*Closing date*: {}"
+PREDICTION_CUT_OFF_DATE = "\n*Cut off date*: {}"
+PREDICTION_WAGERS_REFUNDED = "\n{} Wagers refunded{}"
+PREDICTION_WAGERS_REFUNDED_MAX = " \\(max. ฿{}\\)"
+PREDICTION_MULTIPLE_BETS_ALLOWED = "\n{} Multiple bets allowed"
+PREDICTION_MULTIPLE_BETS_ALLOWED_DESCRIPTION = "\n_\\(Users can bet on multiple options\\)_"
+PREDICTION_CAN_WITHDRAW_BETS = "\n{} Can withdraw bets"
+PREDICTION_CAN_WITHDRAW_BETS_DESCRIPTION = (
+    "\n_\\(Users can withdraw their bets before the prediction is closed\\)_"
+)
+PREDICTION_IS_PUBLIC = "\n{} Public"
+PREDICTION_IS_PUBLIC_DESCRIPTION = (
+    "\n_\\(Anyone in your groups can find this prediction.\nIf disabled, only those who you share"
+    " the prediction with can view it.\nYour fellow Crewmates will always be able to find"
+    " it._\\)"
+)
+PREDICTION_BET_INVALID_FORMAT = (
+    "Make sure your bet is in the following"
+    f" format:\n{CommandName.PREDICTION_BET.get_formatted()} <amount\\> <option"
+    f" number\\>\n\nExample: {CommandName.PREDICTION_BET.get_formatted()} 10.000.000 1"
+)
+PREDICTION_BET_HOW_TO_PLACE_BET = (
+    "\n\n_To place a bet, reply to this message with the following"
+    f" command:\n{CommandName.PREDICTION_BET.get_formatted()} <amount\\> <option"
+    f" number\\>\nExample: {CommandName.PREDICTION_BET.get_formatted()} 10.000.000 1_"
+)
+PREDICTION_BET_HOW_TO_REMOVE_BET = (
+    "\n\n_To remove a bet, reply to the prediction with the following"
+    f" command:\n{CommandName.PREDICTION_BET_REMOVE.get_formatted()} <option number\\>\nExample:"
+    f" {CommandName.PREDICTION_BET_REMOVE.get_formatted()} 1_"
+)
+PREDICTION_BET_HOW_TO_REMOVE_ALL_BETS = (
+    "\n\n_To remove all bets, reply to the prediction with the following"
+    f" command:\n{CommandName.PREDICTION_BET_REMOVE.get_formatted()}_"
+)
+PREDICTION_BET_HOW_TO_VIEW_BET_STATUS = (
+    "\n\n_To view your bet status, reply to the prediction with the following"
+    f" command:\n{CommandName.PREDICTION_BET_STATUS.get_formatted()}_"
+)
+
+PREDICTION_CLOSED_FOR_BETS = "This prediction no longer accept bets"
+PREDICTION_NOT_FOUND_IN_REPLY = (
+    "Prediction not found in replied message. Make sure you replied to a prediction or the"
+    " prediction might have been deleted."
+)
+PREDICTION_ALREADY_BET = "You have already bet on this prediction"
+PREDICTION_ALREADY_BET_ON_OPTION = "You have already bet on this option"
+PREDICTION_OPTION_NOT_FOUND = "Option *{}* not found in prediction"
+PREDICTION_BET_SUCCESS = "Bet placed successfully"
+PREDICTION_RESULTS_SET = "The results of this prediction have been set"
+PREDICTION_BET_REMOVE_INVALID_FORMAT = (
+    "Make sure your command is in the following"
+    f" format:\n{CommandName.PREDICTION_BET_REMOVE.get_formatted()} ]<option number\\>\n\nExample:"
+    f" {CommandName.PREDICTION_BET_REMOVE.get_formatted()} 1"
+)
+PREDICTION_BET_REMOVE_SUCCESS = "Bet removed successfully"
+PREDICTION_BET_USER_HAS_NOT_BET = "You have not bet on this prediction"
+PREDICTION_BET_REMOVE_ALL_SUCCESS = (
+    "All your bets on this prediction have been removed successfully"
+)
+PREDICTION_CLOSED_FOR_BETS_REMOVAL = "You can no longer withdraw bets from this prediction"
+PREDICTION_DOES_NOT_ACCEPT_BETS_WITHDRAWAL = "This prediction does not accept bets withdrawal"
+PREDICTION_OPTION_NOT_BET_ON = "You have not bet on this option"
+PREDICTION_STATUS_BETS_HEADER = "*Bets*"
+PREDICTION_STATUS_OPTION = "\n\n*{}*. {} \n*Amount*: ฿{}"
+PREDICTION_STATUS_POTENTIAL_WIN = "\n*Potential win*: ฿{}"
+PREDICTION_STATUS_RESULT_LOST = "\n*Result*: " + Emoji.PREDICTION_BET_LOSE + "Lost"
+PREDICTION_STATUS_RESULT_LOSS_REFUNDED = " \\(Refunded\\)"
+PREDICTION_STATUS_RESULT_WIN = "\n*Result*: " + Emoji.PREDICTION_BET_WIN + "฿{}"
+PREDICTION_STATUS_TOTAL_WIN = "\n\n*Total win*: " + Emoji.PREDICTION_BET_WIN + "฿{}"
+PREDICTION_STATUS_NET_WIN = "\n\n*Net win*: " + Emoji.PREDICTION_BET_WIN + "฿{}"
+PREDICTION_STATUS_TOTAL_LOSS = "\n\n*Total loss*: " + Emoji.PREDICTION_BET_LOSE + "฿{}"
+PREDICTION_STATUS_NET_LOSS = "\n\n*Net loss*: " + Emoji.PREDICTION_BET_LOSE + "฿{}"
+PREDICTION_ALL_BETS_REMOVED_FOR_BOUNTY_RESET = (
+    "All bets have been removed from this prediction due to bounty reset"
+)
+# Prediction Private Chat
+PREDICTION_ITEM_TEXT = "{} {}"
+PREDICTION_ITEM_TEXT_FILL_IN = "Prediction"
+PREDICTION_ITEM_DETAIL_TEXT = "{}\n\n{}"
+PREDICTION_PLACE_BET_TEXT = "{}"
+PREDICTION_PLACE_BET_DETAIL_TEXT = (
+    "*Question*: {}\n\n*Option*: {}\n\n_Please send the amount you want to bet_"
+)
+PREDICTION_PLACE_BET_LIST_OVERVIEW = "On which option do you want to place a bet?\n{}"
+PREDICTION_REMOVE_BET_TEXT = "{}"
+PREDICTION_REMOVE_BET_LIST_OVERVIEW = "From which option do you want to remove your bet?\n{}"
+PREDICTION_CREATE_COOLDOWN_ACTIVE = "You can create a prediction in *{}*"
+PREDICTION_CREATE_REQUEST_POLL = (
+    "Send the prediction as a Telegram poll with the question and options"
+)
+PREDICTION_CREATE_INVALID_POLL = (
+    "Invalid poll. Make sure to send a Telegram poll with a question and at least two options"
+)
+PREDICTION_CAN_EDIT_POLL_ONLY_IF_NEW = (
+    "You can only edit the question and options if the prediction if the prediction has not been"
+    " enabled yet"
+)
+PREDICTION_CREATE_REQUEST_CLOSE_DATE = (
+    "Send the closing date of the prediction.\n\n" + DATETIME_EXAMPLES
+)
+PREDICTION_CREATE_INVALID_CLOSE_DATE = (
+    "Invalid closing date. Make sure to send a valid date.\n\n" + DATETIME_EXAMPLES
+)
+PREDICTION_CREATE_INVALID_CLOSE_DATE_PAST = (
+    "Invalid closing date. Make sure to send a date in the future.\n\n" + DATETIME_EXAMPLES
+)
+PREDICTION_CREATE_REQUEST_CUT_OFF_DATE = (
+    "Send the cut off date of the prediction.\nAll bets placed after this time will be removed and"
+    " refunded.\nThis action cannot be undone.\nThe time must be after the prediction was opened"
+    " and before it was closed or any previously set cut off time\n\n*Opened time*: {}\n*Closed"
+    " time*: {}\n*Cut off time*: {}\n\n" + DATETIME_EXAMPLES_NO_DURATION
+)
+PREDICTION_CREATE_INVALID_CUT_OFF_DATE = (
+    "Invalid cut off date. Make sure to send a valid date and time after the prediction was opened"
+    " and before it was closed or any previously set cut off time.\n\n*Opened time*: {}\n*Closed"
+    " time*: {}\n*Cut off time*: {}\n\n" + DATETIME_EXAMPLES_NO_DURATION
+)
+PREDICTION_CUT_OFF_DATE_CONFIRMATION_REQUEST = (
+    "Are you sure you want to set the cut off date to *{}*?\n{} bets with a total of ฿{} will be"
+    " removed"
+)
+PREDICTION_SETTING_CANNOT_BE_CHANGED = "This setting cannot be changed"
+PREDICTION_CREATE_CLOSE_DATE = (
+    PREDICTION_CLOSING_DATE
+    + "\n_\\(If set, the prediction will be automatically closed to new bets at this date\\)_"
+)
+PREDICTION_CREATE_CUT_OFF_DATE = (
+    "\n"
+    + PREDICTION_CUT_OFF_DATE
+    + "\n_\\(If set, all bets placed after this time will be removed and refunded\\)_"
+)
+PREDICTION_CUT_OFF_DATE_HOW_TO_SET = "\n_You can set it from the edit menu_"
+PREDICTION_USER_DISCLAIMER = (
+    "\n\n_This prediction was created by a regular user and is not endorsed by the Bounty System"
+    " Staff. Make sure to trust the creator before placing a bet._"
+)
+PREDICTION_DELETE_CONFIRMATION = (
+    "Are you sure you want to delete this prediction? This action cannot be undone.\nYou will be"
+    " able to create another prediction in *{}*.\n\nIf someone has placed a bet on this"
+    " prediction, they will be refunded."
+)
+PREDICTION_OPEN_CONFIRMATION = (
+    "Are you sure you want to open this prediction? You will not be able to change the question or"
+    " options after this.\n\nIf the prediction is public, anyone in your groups will be able to"
+    " find it.\nYour Crewmates will always be able to find it."
+)
+PREDICTION_CREATE_SUCCESS = "Prediction created successfully"
+PREDICTION_DELETE_SUCCESS = "Prediction deleted successfully"
+PREDICTION_OPEN_SUCCESS = "Prediction now open for bets"
+PREDICTION_ALREADY_OPEN = "Prediction already open for bets"
+PREDICTION_ALREADY_CLOSED = "Prediction already closed for bets"
+PREDICTION_CLOSE_CONFIRMATION = (
+    "Are you sure you want to close this prediction to new bets?\nThis action cannot be undone."
+)
+PREDICTION_CLOSE_SUCCESS = "Prediction closed successfully"
+PREDICTION_INLINE_RESULT_SHARE = "Share Prediction"
+PREDICTION_IN_WRONG_STATUS = "Prediction in wrong status"
+PREDICTION_SEND_TO_GROUP = (
+    "You can send this prediction to groups or topics where you are an Admin and users will be"
+    " able to bet on it by replying to the message.\nIf you don't find a group, make sure the Bot"
+    f" is a member of the group and use the {CommandName.STATUS.get_formatted()} command in"
+    " the group.\nYou can send only once to each group or topic.{}"
+)
+PREDICTION_SEND_TO_GROUP_NO_GROUPS = "\n\n_No groups found_"
+PREDICTION_SEND_TO_GROUP_GROUPS_AVAILABLE = (
+    "*\n\nAvailable*:{}\n\nSelect the number of the group \\(no confirmation is required\\)"
+)
+PREDICTION_SEND_TO_GROUP_GROUPS_ALREADY_SENT = "*\n\nAlready sent*:{}"
+PREDICTION_SEND_TO_GROUP_GROUPS_ALREADY_SENT_ITEM = "\n•{}"
+PREDICTION_SEND_TO_GROUP_GROUPS_AVAILABLE_ITEM = "\n{}. {}"
+PREDICTION_SEND_TO_GROUP_NOT_ADMIN = "You are no longer an Admin"
+PREDICTION_SEND_TO_GROUP_ALREADY_SENT = "This prediction has already been sent to this group"
+PREDICTION_SET_RESULT = "Select the correct options for this prediction\n\n*{}*\n{}"
+PREDICTION_SET_RESULT_CONFIRMATION_REQUEST = (
+    "Are you sure you want to set the result of this prediction?\nThe wagers will be distributed"
+    " accordingly to the winners and.\nThis action cannot be undone\n\nCorrect options:{}"
+)
+PREDICTION_SET_RESULT_SUCCESS = "Prediction result set successfully"
+PREDICTION_SET_RESULT_CONFIRMATION_REQUEST_NO_CORRECT_OPTION = (
+    "No correct option set, wagers will be refunded."
+)
+
+# Crew - Private
+CREW_SEARCH_ITEM_TEXT = "{} \\(Lv. {}\\)"
+CREW_SEARCH_ITEM_TEXT_FILL_IN = "Crew"
+CREW_SEARCH_ITEM_LEGEND_CAN_JOIN = "Can join"
+CREW_SEARCH_ITEM_LEGEND_AUTO_ACCEPT_JOIN = "Auto accepts join"
+CREW_SEARCH_ITEM_LEGEND_CANNOT_JOIN = "Cannot join"
+CREW_SEARCH_ITEM_LEGEND_AVAILABLE_FOR_DAVY_BACK_FIGHT = "Available for Davy Back Fight"
+CREW_SEARCH_ITEM_LEGEND_AUTO_ACCEPTS_DAVY_BACK_FIGHT = "Auto accepts Davy Back Fight"
+CREW_SEARCH_FILTER_NAME = "Crew name"
+CREW_SEARCH_NOT_ALLOWED_TO_VIEW = (
+    "Crew information not available.\n\nIf you are the Captain of this Crew, enable `Allow users"
+    " to find the Crew from search` option under `Crew-\\>Modify`"
+)
+CREW_SEARCH_JOIN_NOT_ALLOWED = "The Crew does not allow join requests from search"
+CREW_SEARCH_JOIN_NOT_ENOUGH_BOUNTY = "You need a bounty of ฿{} to join the Crew"
+CREW_SEARCH_JOIN_CONFIRMATION_REQUEST = (
+    "Are you sure you want to send a request to join *{}*?\nYou can request to join a maximum"
+    f" of {Env.CREW_JOIN_REQUESTS_PER_COOLDOWN.get_int()} Crews every"
+    f" {Env.CREW_JOIN_REQUEST_COOLDOWN_DURATION.get_int()} hours and can request to join the same"
+    f" Crew every {Env.CREW_JOIN_REQUEST_COOLDOWN_SAME_CREW_DURATION.get_int()} days.\n\nYour"
+    " current bounty will be shared with the Crew Captain"
+)
+CREW_SEARCH_JOIN_CONFIRMATION_REQUEST_AUTO_ACCEPT = (
+    "\n\n_*Your request will be automatically accepted*_"
+)
+CREW_SEARCH_JOIN_SUCCESS = (
+    "Request to join *{}* sent successfully, you will be notified when it is accepted"
+)
+CREW_SEARCH_JOIN_CAPTAIN_REQUEST = (
+    "Hi, I'm {} and I would like to join your Crew!\n\nCurrent bounty: ฿{}"
+)
+CREW_SEARCH_JOIN_CAPTAIN_ACCEPTED = "{} is now a member of your Crew!"
+CREW_SEARCH_JOIN_CAPTAIN_ACCEPTED_AUTO_ACCEPT = (
+    "\n\n_This request was automatically accepted, [click here]({}) to change this setting_"
+)
+CREW_SEARCH_JOIN_CAPTAIN_REJECTED = "You have rejected {}'s request to join your Crew"
+CREW_SEARCH_JOIN_CAPTAIN_ERROR = "Error while sending request to Crew Captain"
+CREW_SEARCH_JOIN_MAXIMUM_REQUESTS_PER_COOLDOWN = "You can request to join another Crew in {}"
+CREW_SEARCH_JOIN_MAXIMUM_REQUESTS_SAME_CREW_PER_COOLDOWN = (
+    "You can request to join this Crew again in {}"
+)
+CREW_SEARCH_UNAUTHORIZED_CANNOT_VIEW_FROM_SEARCH = (
+    "This Crew's information is not available from search.\n\nIf you are the Captain or First Mate"
+    " of this Crew, enable `Allow users to find the Crew from search` option under"
+    f" `{PVT_KEY_CREW}-\\>{KEY_MODIFY}`"
+)
+CREW_USER_NOT_IN_CREW = (
+    "You are not in a Crew. Search for one or create your"
+    f" own.\n\nCreating a Crew will cost ฿{Env.CREW_CREATE_PRICE.get_belly()}."
+    f"\n\n>You can also find available Crew in the {SUPPORT_GROUP_DEEPLINK}"
+)
+CREW_NAME_WITH_LEVEL_DEEPLINK = "[{}]({}) \\(Lv. {}\\)"
+CREW_OVERVIEW = (
+    "*{}* \\(Lv. *{}*\\)"
+    "\n\n_{}_"
+    "\n\n*Captain*: {}"
+    "{}"  # First Mate
+    "\n*Formation date*: {} \\({}\\)"
+    "\n*Members*: {} \\(Max. {}\\)"
+    "{}"  # Active abilities count
+    "{}"  # Required bounty
+    "{}"  # Treasure chest
+    "{}"  # Abilities
+    "{}"  # No new members allowed
+    "{}"  # Davy Back Fight penalty active
+)
+CREW_OVERVIEW_FIRST_MATE = "\n*First Mate*: {}"
+CREW_OVERVIEW_ACTIVE_ABILITIES_COUNT = "\n*Active abilities*: {} \\(Max. {}\\)"
+CREW_OVERVIEW_TREASURE_CHEST = "\n\n*Treasure Chest*: ฿{}"
+CREW_OVERVIEW_ACTIVE_ABILITIES = "\n\n*Abilities*{}"
+CREW_OVERVIEW_REQUIRED_BOUNTY = "\n\n*Required bounty*: ฿{}"
+
+CREW_OVERVIEW_NO_NEW_MEMBERS_ALLOWED = (
+    "\n\n_No new members allowed until the next weekly leaderboard in {}_"
+)
+CREW_OVERVIEW_DAVY_BACK_FIGHT_PENALTY_ACTIVE = (
+    f"\n\n_{Emoji.LOG_NEGATIVE}Davy Back Fight penalty active for the next "
+    "*{}*, no member can leave the Crew._"
+)
+CREW_OVERVIEW_DESCRIPTION_NOT_SET = "No description set"
+CREW_MEMBER_ITEM_TEXT = "{}"
+CREW_MEMBER_ITEM_ROLE = " \\({}\\)"
+# Crew - Member
+CREW_MEMBER_ITEM_DETAIL = (
+    "*{}*\n\n*Bounty*: ฿{}\n*Join Date*: {} \\({}°\\)"
+    "\n*Last active*: {}"
+    "\n\nChest contribution: ฿{} \\({}°\\)\nCrew"
+    " MVP Bonus: {}{}"
+)
+CREW_MEMBER_ITEM_DETAIL_ARRESTED = f"\n\n{Emoji.LOG_NEGATIVE}Arrested \\({{}}\\)"
+CREW_MEMBER_ITEM_DETAIL_CONSCRIPTION_END_DATE = "\n\n*Conscription end date*: {}"
+CREW_MEMBER_ITEM_TEXT_FILL_IN = "Crew Member"
+CREW_USER_ALREADY_IN_SAME_CREW = "You are already in this Crew"
+CREW_INVITE_TARGET_ALREADY_IN_SAME_CREW = (
+    "The user you're trying to invite is already a member of this Crew."
+)
+CREW_USER_ALREADY_IN_CREW = "You are already in a Crew"
+CREW_JOIN_USER_ALREADY_IN_CREW = (
+    "You are already a member of a Crew. Leave your current Crew before joining another one."
+)
+CREW_INVITE_TARGET_ALREADY_IN_CREW = "The user you're trying to invite is already a member of a Crew."
+CREW_CREATE_USER_NOT_ENOUGH_BOUNTY = (
+    f"Insufficient bounty, forming a Crew costs ฿{Env.CREW_CREATE_PRICE.get_belly()}"
+)
+CREW_CANNOT_CREATE_CREW = "You can create a Crew in {}"
+CREW_CREATE_REQUEST_NAME = "Send the name of your Crew"
+CREW_CREATE_NAME_ALREADY_EXISTS = "A Crew with this name already exists"
+CREW_CREATE_NAME_TOO_LONG = (
+    f"Crew name must not exceed {Env.CREW_NAME_MAX_LENGTH.get_int()} characters"
+)
+CREW_CREATE_SUCCESS = (
+    "You are now Captain of the *{}*."
+    + f"\n\nHead over to a Chat Group to start recruiting members!"
+)
+CREW_EDIT_NAME_SUCCESS = "Crew name updated successfully"
+CREW_EDIT_REQUEST_DESCRIPTION = (
+    f"Send the new description of your Crew \\(max. {Env.CREW_DESCRIPTION_MAX_LENGTH.get_int()}"
+    " characters\\)"
+)
+CREW_EDIT_DESCRIPTION_TOO_LONG = (
+    f"Crew description must not exceed {Env.CREW_DESCRIPTION_MAX_LENGTH.get_int()} characters"
+)
+CREW_EDIT_DESCRIPTION_SUCCESS = "Crew description updated successfully"
+CREW_EDIT_REQUEST_REQUIRED_BOUNTY = "Send the minimum bounty required to join your Crew"
+CREW_EDIT_REQUIRED_BOUNTY_SUCCESS = "Required bounty updated successfully"
+CREW_MODIFY = (
+    "*Name*: {}"
+    "\n\n*Description*: {}"
+    "\n\n*Required bounty*: ฿{}"
+    "\n\nAllow users to find the Crew from search."
+    "\nIf disabled, the Crew won't appear in the global leaderboard"
+    "\n_{}_"
+    "\n\nAllow users to request to join the Crew from search"
+    "\n_{}_"
+    "\n\nAuto accept join requests from search"
+    "\n_{}_"
+    "\n\nAllow captains to challenge your Crew to a Davy Back Fight"
+    "\n_{}_"
+    "\n\nAuto-accept Davy Back Fight challenges \\(only if duration is at least "
+    f"{Env.DAVY_BACK_FIGHT_DEFAULT_DURATION.get()} hours\\)."
+    "\nIf active, you can choose which Crewmates will be chosen by default to participate, in "
+    "case you are not able to manually select them before the Challenge starts"
+    "\n_{}_"
+    "\n\n What would you like to modify?"
+)
+
+CREW_MODIFY_ONLY_CAPTAIN_OR_FIRST_MATE = (
+    "Only the Captain or First Mate can modify the Crew settings"
+)
+CREW_EDIT_DAVY_BACK_FIGHT_PRIORITY_SELECT_USER = (
+    "Of which member do you want to change the priority?"
+)
+CREW_EDIT_DAVY_BACK_FIGHT_PRIORITY_SELECT_SWAP = (
+    "With which member do you want to swap {} priority?"
+)
+CREW_EDIT_DAVY_BACK_FIGHT_PRIORITY = "{}\n{}{}"
+CREW_EDIT_DAVY_BACK_FIGHT_PRIORITY_EXPLANATION = (
+    "\n\n>The priority determines the default order in which members will be chosen for"
+    " Davy Back Fights.\n>For example, if a you receive a Davy Back Fight challenge with 3"
+    " participants from each Crew, the first 3 members in the above list will be automatically"
+    " chosen.\n>You can always change the actual players during the"
+    f" {Env.DAVY_BACK_FIGHT_START_WAIT_TIME.get()} minutes countdown before the challenge starts."
+)
+CREW_ROLE_CAPTAIN = "Captain"
+CREW_ROLE_FIRST_MATE = "First Mate"
+CREW_ROLE_CONSCRIPT = "Conscript"
+
+# Crew - Join request
+CREW_JOIN_REQUEST_CREW_FULL = "The Crew is full"
+CREW_NOT_FOUND = "Crew not found"
+CREW_JOIN_REQUEST_CAPTION = (
+    "My name is {}!!! I do not know who you are, but I ask you!!\nLet me ride on your"
+    " ship!!\n\n_Only the [Captain]({}) or [First Mate]({}) can accept or reject this request_"
+)
+CREW_JOIN_REQUEST_ACCEPTED = "{} is now a member of {}!"
+CREW_JOIN_REQUEST_REJECTED = (
+    "[Your](tg://user?id={}) request to join the *{}* has been rejected, but don't give up!!"
+)
+CREW_JOIN_REQUEST_CREW_CANNOT_ACCEPT_USER = "The User cannot join this Crew"
+CREW_JOIN_REQUEST_USER_CANNOT_JOIN_CREW = "You cannot join this Crew"
+CREW_USER_CANNOT_JOIN_CREW_UNTIL_RESET = (
+    "You cannot join a Crew until the next weekly leaderboard in {}"
+)
+CREW_JOIN_REQUEST_CREW_CANNOT_ACCEPT_NEW_MEMBERS_UNTIL_NEXT_RESET = (
+    "The Crew cannot accept new members until the next weekly leaderboard in {}"
+)
+
+# Crew - Invite request
+CREW_INVITE_REQUEST_CAPTION = (
+    "I'm {} and this meeting must be fate, {}! \nWhat do you say to turning the world upside down"
+    " with me?"
+)
+CREW_INVITE_REQUEST_ACCEPTED = "{} is now a member of {}!"
+CREW_INVITE_REQUEST_REJECTED = "Invitation to join the *{}* has been rejected by {}"
+
+STEP_REQUIRES_TEXT = "Please send a valid text"
+ITEM_NOT_FOUND = (
+    "Item not found. If you think this is a mistake, please report it in the "
+    f"{SUPPORT_GROUP_DEEPLINK}"
+)
+ITEM_NOT_FOUND_NO_CONTACT = "Item not found."
+ITEM_IN_WRONG_STATUS = "Item in wrong status"
+INLINE_QUERY_ITEM_NOT_FOUND_TITLE = "Item not found"
+INLINE_QUERY_ITEM_NOT_FOUND_DESCRIPTION = "Restart the Bot to retrieve a valid url"
+INLINE_QUERY_ITEM_NOT_FOUND_MESSAGE = "Error"
+
+# Crew - Leave
+CREW_LEAVE_CONFIRMATION = (
+    "Are you sure you want to leave the Crew?\nYou will not be able to join another Crew until the"
+    " next weekly leaderboard in {}"
+)
+CREW_LEAVE_CONFIRMATION_LOCATION_DOWNGRADE = (
+    " and your location will be downgraded to {} \\(current location: {}\\)"
+)
+CREW_LEAVE_SUCCESS = "You have left the Crew"
+
+# Crew - Disband
+CREW_DISBAND_CONFIRMATION = (
+    "Are you sure you want to disband the Crew?\nYou will not be able to create another Crew until"
+    " the next bounty reset in {}"
+)
+CREW_DISBAND_SUCCESS = "You have disbanded the Crew"
+CREW_DISBAND_ACTIVE_DAVY_BACK_FIGHT = (
+    "The Crew cannot be disbanded during an active Davy Back Fight"
+)
+CREW_DISBAND_DAVY_BACK_FIGHT_PENALTY = (
+    "The Crew cannot be disbanded during a Davy Back Fight penalty period"
+)
+
+# Crew - Remove member
+CREW_NOT_SAME = "You are not in the same Crew"
+CREW_REMOVE_MEMBER_CONFIRMATION = (
+    "Are you sure you want to expel {} from the Crew?\nYou will not be able accept new members"
+    " until the next weekly leaderboard in {}"
+)
+CREW_REMOVE_MEMBER_SUCCESS = "{} has been expelled from the Crew"
+CREW_REMOVE_MEMBER_ACTIVE_DAVY_BACK_FIGHT = (
+    "Members cannot be removed or leave the Crew during an active Davy Back Fight"
+)
+CREW_REMOVE_MEMBER_DAVY_BACK_FIGHT_PENALTY = (
+    "Members cannot be removed or leave the Crew during a Davy Back Fight penalty period"
+)
+CREW_REMOVE_MEMBER_CONSCRIPT = "You can leave the Crew after your conscription period ends in {}"
+
+# Crew - Promote to First Mate
+CREW_PROMOTE_TO_FIRST_MATE_CREW_ALREADY_HAS_FIRST_MATE = "The Crew already has a First Mate"
+CREW_PROMOTE_TO_FIRST_MATE_CANNOT_PROMOTE_UNTIL_NEXT_LEADERBOARD = (
+    "You demoted a member from First Mate recently. You can't promote another"
+    " member to First Mate until the next weekly leaderboard in {}"
+)
+CREW_PROMOTE_CANNOT_PROMOTE_DAVY_BACK_FIGHT = (
+    "You cannot promote a member during an active Davy Back Fight or the penalty period following "
+    "a loss"
+)
+CREW_FIRST_MATE_PRIVILEGES = (
+    "\n• Accept new members "
+    "\n• Activate Crew Abilities"
+    "\n• Modify Crew settings"
+    "\n• Can't be conscripted in Davy Back Fights"
+)
+CREW_PROMOTE_TO_FIRST_MATE_CONFIRMATION = (
+    "Are you sure you want to promote {} to First Mate?\nThey will gain the following privileges:"
+    + CREW_FIRST_MATE_PRIVILEGES
+)
+CREW_PROMOTE_TO_FIRST_MATE_SUCCESS = "{} has been promoted to First Mate"
+
+# Crew - Demote from First Mate
+CREW_DEMOTE_FROM_FIRST_MATE_IS_NOT_FIRST_MATE = "{} is not a First Mate"
+CREW_DEMOTE_FROM_FIRST_MATE_CONFIRMATION = (
+    "Are you sure you want to demote {} from First Mate?\nYou will not be able to promote another"
+    " member to First Mate until the next weekly leaderboard in {}"
+)
+CREW_DEMOTE_FROM_FIRST_MATE_SUCCESS = "{} has been demoted from First Mate"
+POST_BAIL_MEMBER_NOT_ARRESTED_TEMPORARY = "The user does not have a temporary sentence"
+POST_BAIL_NOT_ENOUGH_BOUNTY = "You need ฿{} to post bail.\n\nCurrent bounty: ฿{}"
+POST_BAIL_CONFIRMATION_REQUEST = (
+    "Are you sure you want to post bail for {}?"
+    "\nFor each remaining minute in the sentence, "
+    f"you will be charged ฿*{Env.IMPEL_DOWN_BAIL_PER_MINUTE.get_belly()}*"
+    "\n\nTotal bail: ฿*{}*"
+)
+CREW_POST_BAIL_SUCCESS = "Bail posted successfully"
+
+# Crew - Promote to Captain
+CREW_PROMOTE_TO_CAPTAIN_CANNOT_PROMOTE_NOT_FIRST_MATE = (
+    "You can only promote a First Mate to Captain"
+)
+CREW_PROMOTE_TO_CAPTAIN_CANNOT_PROMOTE_UNTIL_NEXT_RESET = (
+    "You cannot promote a member to Captain until the next bounty reset in {}"
+)
+CREW_PROMOTE_TO_CAPTAIN_CONFIRMATION = (
+    "Are you sure you want to promote {} to Captain?\nYou will be demoted to First"
+    f" Mate.\n\n{Emoji.WARNING_STRONG}Attention: This action cannot be undone and you will"
+    " permanently lose ownership of your Crew unless you are promoted back to Captain by the new"
+    " Captain"
+)
+CREW_PROMOTE_TO_CAPTAIN_SUCCESS = "{} has been promoted to Captain"
+
+# Crew abilities
+CREW_ABILITIES = (
+    "*Crew Abilities*\n\nAbilities mimic the effects of Devil Fruits and are extended to all"
+    " members of the Crew." + "\nEach ability cost depends on the current Crew level and lasts for"
+    f" {Env.CREW_ABILITY_DURATION_DAYS.get_int()} days."
+    + "\n{}\n\nNext ability cost: ฿*{}*\nCrew chest: ฿{}"
+)
+CREW_ABILITY_NO_ABILITIES = "\n_No abilities are currently activated in this Crew_"
+CREW_ABILITY_ITEM_TEXT = "\n• {}{} \\({}%\\)"
+CREW_ABILITY_ITEM_TEXT_DURATION = "\nRemaining time: {}"
+CREW_POWERUP_INSUFFICIENT_CREW_CHEST = (
+    "Insufficient Crew Chest\n\nCrew chest: ฿{}\nPower-up cost: ฿{}"
+)
+CREW_ABILITY_MAX_ABILITIES_REACHED = "Max number of active abilities reached"
+CREW_ABILITY_ACTIVATE_CHOOSE = (
+    "Choose an ability you want to use, or go with Random' for a surprise. "
+    "\n\nIf you pick a specific ability, it will always be set at "
+    f"{Env.CREW_ABILITY_DEFAULT_VALUE_PERCENTAGE.get_int()}%."
+    "\n\nIf you choose Random instead you'll get a completely random ability and its "
+    "value can be anywhere between "
+    f"{Env.CREW_ABILITY_RANDOM_MIN_VALUE_PERCENTAGE.get_int()}% "
+    f"and {Env.CREW_ABILITY_RANDOM_MAX_VALUE_PERCENTAGE.get_int()}%."
+)
+CREW_ABILITY_ACTIVATE_CHOOSE_RECAP = (
+    "\n\n*Ability*: {}\n*Value*: {}\n*Duration*: {} days\n*Cost*: ฿{}"
+)
+CREW_ABILITY_ACTIVATE_CHOOSE_CONFIRMATION_REQUEST = (
+    "Are you sure you want to activate the following ability?" + CREW_ABILITY_ACTIVATE_CHOOSE_RECAP
+)
+CREW_ABILITY_ACTIVATE_SUCCESS = (
+    "Ability activated successfully" + CREW_ABILITY_ACTIVATE_CHOOSE_RECAP
+)
+CREW_ABILITY_ALREADY_ACTIVATED = (
+    "This ability is already activated, please choose another one."
+    "\nIt can still be obtained randomly."
+)
+
+# Crew power-up
+CREW_POWERUP = (
+    "*Level*"
+    "\nBy leveling-up a, the Crew can increase the number of allowed abilities or members slot"
+    " and reduce income tax for the members."
+    "\n\n_*Current level:*_ {}"
+    "\n\n\n*Abilities*"
+    "\nAbilities mimic the effects of Devil Fruits and are extended to all members of the Crew."
+    "\n\n_*Current abilities:*_"
+    "{}"
+    "\n\nOnly the Crew Captain or First Mate can enable a power-up"
+)
+
+# Crew level
+CREW_LEVEL_UP_RECAP = "*Upgrade*: +1 {} slot \\({}-\\>{}\\)\n*Income Tax*: -1 Bracket\n*Cost*: ฿{}"
+CREW_LEVEL = (
+    "*Level*"
+    "\n\nBy leveling-up a, the Crew can increase the number of allowed abilities or members slot"
+    " and reduce income tax for the members."
+    "\nEach level doubles the price of the next one."
+    "\n\n*Current level*: {}"
+    "\n*Max members*: {}"
+    "\n*Max abilities*: {}"
+    "\n\n*Next level*: {}"
+    "\n{}"
+    "\nCrew chest: ฿{}"
+)
+CREW_LEVEL_UPGRADE_TYPE_MEMBER = "member"
+CREW_LEVEL_UPGRADE_TYPE_ABILITY = "ability"
+
+CREW_LEVEL_UP_CONFIRMATION_REQUEST = "Are you sure you want to level up the Crew?\n\n{}"
+CREW_LEVEL_UP_SUCCESS = "Crew leveled up successfully\n\n{}"
+CREW_DAVY_BACK_FIGHT_LIST_NO_ITEMS = (
+    "The Crew has not yet participated in any Davy Back Fights.\nThe Captain can challenge"
+    " another Crew from:"
+    f"\n`{CommandName.START.get_non_formatted()}-\\>{PVT_KEY_CREW}-\\>{PVT_KEY_CREW_SEARCH}"
+    f"-\\>Select a Crew-\\>{PVT_KEY_CREW_DAVY_BACK_FIGHT}`"
+)
+CREW_DAVY_BACK_FIGHT_ITEM_TEXT = "{} vs. {}"
+CREW_DAVY_BACK_FIGHT_ITEM_TEXT_FILL_IN = "Davy Back Fight"
+CREW_DAVY_BACK_FIGHT_ITEM_DETAIL_TEXT = (
+    "*{}*: {}\n\n*Start date*: {}\n*End date*: {}\n*Players*: {}{}\n\n{}{}"
+)
+CREW_DAVY_BACK_FIGHT_ITEM_DETAIL_CONTRIBUTIONS = (
+    "\n\n*Total gained*: ฿{}\n*Opponent total gained*: ฿{}\n*Top Crew Player*: {} \\(฿{}\\)"
+)
+CREW_DAVY_BACK_FIGHT_ITEM_DETAIL_PENDING_CHEST = "\n*Frozen Chest*: ฿{}"
+CREW_DAVY_BACK_FIGHT_ITEM_DETAIL_END = "\n\n*Penalty end*: {}{}{}"
+CREW_DAVY_BACK_FIGHT_ITEM_DETAIL_PENALTY_PAID = "\n*Penalty paid*: {}"
+CREW_DAVY_BACK_FIGHT_ITEM_DETAIL_PENALTY_RECEIVED = "\n*Penalty payment received*: {}"
+CREW_DAVY_BACK_FIGHT_ITEM_DETAIL_CONSCRIPTED_MEMBER = "\n\n*Conscripted member*: {}"
+
+CREW_DAVY_BACK_FIGHT_REQUEST_ERROR_SAME_CREW = "Cannot challenge your own Crew"
+CREW_DAVY_BACK_FIGHT_REQUEST_ERROR_ALREADY_IN_FIGHT = "Crew already in a Davy Back Fight"
+CREW_DAVY_BACK_FIGHT_REQUEST_ERROR_ALREADY_PENDING = (
+    "Crew already has a pending Davy Back Fight request"
+)
+CREW_DAVY_BACK_FIGHT_REQUEST_ERROR_IN_PENALTY_PERIOD = (
+    "Crew is in a penalty period and cannot participate in a Davy Back Fight"
+)
+CREW_DAVY_BACK_FIGHT_REQUEST_ERROR_TOO_LATE = (
+    "Davy Back Fight cannot be initiated less than {} hours before bounty reset"
+)
+CREW_DAVY_BACK_FIGHT_REQUEST_ERROR_MINIMUM_PARTICIPANTS = (
+    "Crew must have at least {} members to participate in a Davy Back Fight"
+)
+CREW_DAVY_BACK_FIGHT_REQUEST_ERROR_OPPONENT_NOT_ALLOWING = (
+    "Opponent Crew does not allow Davy Back Fight requests"
+)
+CREW_DAVY_BACK_FIGHT_PARTICIPANTS_RULES_RECAP = (
+    ">Every net bounty gained from challenges, fights and plunders will be considered towards the"
+    " Crew's total gain.\n>- Bounty gained from your Crewmates are not considered\n>- Bounty"
+    " gained from non-players of the opponents Crew are valued half\n>- Half of any new Crew chest"
+    " contribution will frozen\n>- The players from the winner Crew will receive the frozen chest"
+    " contribution from the opponent Crew, proportionally to their contribution"
+)
+CREW_DAVY_BACK_FIGHT_RULES_RECAP = (
+    ">A *Davy Back Fight* is a competition between 2 Crews which lasts for a determined"
+    f" duration.\n{CREW_DAVY_BACK_FIGHT_PARTICIPANTS_RULES_RECAP}.\n>- Winner Crew will receive"
+    f" {Env.DAVY_BACK_FIGHT_LOSER_CHEST_PERCENTAGE.get()}% of the loser Crew new Crew Chest gain"
+    " for a penalty period.\n>- Winner Crew can conscript any member from the opponent Crew that"
+    " participated in the challenge \\(apart from Captain and First Mate\\), and the new recruit"
+    " can't leave the Crew until the penalty period is over\n>During the Davy Back Fight and"
+    " eventual penalty period in case of loss, no one can leave the Crew."
+)
+CREW_DAVY_BACK_FIGHT_REQUEST = (
+    CREW_DAVY_BACK_FIGHT_RULES_RECAP
+    + "\n\n*Number of participants*: {}\n*Duration*\\(hours\\): {}\n*Penalty"
+    " period*\\(days\\): {}\n\nAre you sure you want to challenge *{}* to a Davy Back"
+    f" Fight?\nThey will have {Env.DAVY_BACK_FIGHT_REQUEST_EXPIRATION_TIME.get()} minutes to"
+    " accept or reject."
+)
+CREW_DAVY_BACK_FIGHT_REQUEST_AUTO_ACCEPT = (
+    "\n\n_*The challenge will be automatically accepted if the duration is at least"
+    f" {Env.DAVY_BACK_FIGHT_DEFAULT_DURATION.get()} hours*_"
+)
+CREW_DAVY_BACK_FIGHT_REQUEST_EDIT_PARTICIPANTS = (
+    "How many members from each Crew will participate in the Davy Back Fight?"
+)
+CREW_DAVY_BACK_FIGHT_REQUEST_EDIT_DURATION = "How many hours will the Davy Back Fight last?"
+CREW_DAVY_BACK_FIGHT_REQUEST_EDIT_PENALTY = "How many days will the penalty period last?"
+CREW_DAVY_BACK_FIGHT_REQUEST_SUCCESS = (
+    "Davy Back Fight challenge to *{}* sent successfully, you will be notified when it is accepted"
+)
+CREW_DAVY_BACK_FIGHT_CAPTAIN_REQUEST = (
+    "New Davy Back Fight challenge from {}!"
+    "\n\n*Number of participants*: {}"
+    "\n*Duration*\\(hours\\): {}"
+    "\n*Penalty period*\\(days\\): {}"
+    "\n\nYou have {} to accept the challenge"
+    "\n\n" + CREW_DAVY_BACK_FIGHT_RULES_RECAP
+)
+CREW_DAVY_BACK_FIGHT_CAPTAIN_ACCEPTED = (
+    "Davy Back Fight against {} accepted, it will start in"
+    f" {Env.DAVY_BACK_FIGHT_START_WAIT_TIME.get()} minutes.\n\nClick `{KEY_MANAGE}` to review"
+    " and change the players"
+)
+CREW_DAVY_BACK_FIGHT_CAPTAIN_REQUEST_AUTO_ACCEPT = (
+    "You have accepted a Davy Back Fight challenge from {}!"
+    "\n\n*Number of participants*: {}"
+    "\n*Duration*\\(hours\\): {}"
+    "\n*Penalty period*\\(days\\): {}"
+    f"\n\nThe challenge will start in {Env.DAVY_BACK_FIGHT_START_WAIT_TIME.get()} minutes."
+    "\n\n_This challenge was automatically accepted, [click here]({}) to change this setting_"
+    f"\n\nClick `{KEY_MANAGE}` to review and change the players"
+    "\n\n" + CREW_DAVY_BACK_FIGHT_RULES_RECAP
+)
+CREW_DAVY_BACK_FIGHT_CAPTAIN_REJECTED = "Davy Back Fight against {} rejected"
+CREW_DAVY_BACK_FIGHT_USER_NOT_MEMBER_OF_PARTICIPATING_CREW = (
+    "User not a member of a participating Crew"
+)
+CREW_DAVY_BACK_FIGHT_USER_ALREADY_PARTICIPANT = "User already a participant"
+CREW_DAVY_BACK_FIGHT_NOT_ENOUGH_MEMBERS = (
+    "Not enough members to participate in the Davy Back Fight"
+)
+CREW_DAVY_BACK_FIGHT_PARTICIPANTS_SELECT_ERROR_ALREADY_STARTED = (
+    "The Davy Back Fight has already started"
+)
+CREW_DAVY_BACK_FIGHT_PARTICIPANTS_SELECT_ERROR_NOT_ENOUGH_MEMBERS = "No extra member to swap with"
+CREW_DAVY_BACK_FIGHT_PARTICIPANTS_SELECT = (
+    "Choose the members you want to participate in the Davy Back Fight.\n\nRemaining time: {}"
+)
+CREW_DAVY_BACK_FIGHT_PARTICIPANTS_SELECT_SWAP = "Select the member you want to swap with"
+CREW_DAVY_BACK_FIGHT_PARTICIPANTS = "*Team Mates*{}\n\n*Opponents*{}"
+CREW_DAVY_BACK_FIGHT_PARTICIPANTS_ITEM = "\n{} - ฿{}"
+CREW_DAVY_BACK_FIGHT_PARTICIPANTS_ITEM_POTENTIAL_WIN = "\nPotential win: ฿{}\n"
+CREW_DAVY_BACK_FIGHT_PARTICIPANTS_ITEM_WIN = "\nWin: ฿{}\n"
+
+CREW_DAVY_BACK_FIGHT_PARTICIPANTS_RULES_WITH_TIME = (
+    f"\n\n_{CREW_DAVY_BACK_FIGHT_PARTICIPANTS_RULES_RECAP}\n\n*Remaining time*: {{}}_"
+)
+CREW_DAVY_BACK_FIGHT_WON = (
+    f"\n\n_For the next *{{}}*, {Env.DAVY_BACK_FIGHT_LOSER_CHEST_PERCENTAGE.get()}% of every"
+    " opponent new Crew Chest gain will be given to your Crew.\nFurthermore, your Crew Captain"
+    " can conscript any member of the opponent Crew that participated \\(apart from Captain and"
+    " First Mate\\), who can't leave your Crew until the penalty period is over._"
+)
+CREW_DAVY_BACK_FIGHT_LOST = (
+    f"\n\n_For the next *{{}}*, {Env.DAVY_BACK_FIGHT_LOSER_CHEST_PERCENTAGE.get()}% of every"
+    " new Crew Chest gain will be given to the opponent Crew.\nFurthermore, the opponent Crew can"
+    " conscript any member of your Crew that participated \\(apart from Captain and First Mate\\),"
+    " who can't leave the opponent Crew until the penalty period is over._"
+)
+CREW_DAVY_BACK_FIGHT_OPPONENT_CONSCRIPT_ERROR_PENALTY_PERIOD_ENDED = "The penalty period has ended"
+CREW_DAVY_BACK_FIGHT_OPPONENT_CONSCRIPT_ERROR_ALREADY_CONSCRIPTED = (
+    "An opponent is already conscripted"
+)
+CREW_DAVY_BACK_FIGHT_OPPONENT_CONSCRIPT_CHOOSE_CONSCRIPT = (
+    "Choose the member you want to conscript from the opponent Crew.\nThey will have to stay in"
+    " your Crew until the penalty period is over in {}."
+)
+CREW_DAVY_BACK_FIGHT_OPPONENT_CONSCRIPT_CHOOSE_CONFIRMATION_REQUEST = (
+    "Are you sure you want to conscript {} from the opponent Crew?"
+)
+CREW_DAVY_BACK_FIGHT_OPPONENT_CONSCRIPT_SUCCESS = "{} has been conscripted to your Crew"
+
+# Bounty Gift
+BOUNTY_GIFT_NO_AMOUNT = (
+    "You need to specify the amount of belly you want to gift\n\nExample:"
+    f" {CommandName.BOUNTY_GIFT.get_formatted()} 10.000.000"
+)
+BOUNTY_GIFT_REQUEST = (
+    "Are you sure you want to gift ฿*{}* to {}?\n\nTax: ฿{} \\({}%\\)\nTotal: ฿*{}*"
+)
+BOUNTY_GIFT_CONFIRMED = "You have gifted ฿*{}* to {}\n\nTax: ฿{} \\({}%\\)\nTotal: ฿*{}*"
+BOUNTY_GIFT_CANCELLED = "Gift cancelled"
+BOUNTY_GIFT_NOT_ENOUGH_BOUNTY = (
+    "You do not have enough belly to gift\n\nAvailable belly: ฿{}\nGift amount: ฿*{}*\nTax: ฿{}"
+    " \\({}%\\)\nTotal: ฿*{}*\n\nYou can gift up to ฿`{}`"
+)
+
+# Bounty Loan
+BOUNTY_LOAN_INVALID_COMMAND = (
+    "You need to specify the amount to loan, the amount to repay and the duration\n\nExample:"
+    f" {CommandName.BOUNTY_LOAN.get_formatted()} 100mil 150mil 1day"
+)
+BOUNTY_LOAN_LOANER = "\nLoaner: {}"
+BOUNTY_LOAN_BORROWER = "\nBorrower: {}"
+BOUNTY_LOAN_AMOUNT = "\nAmount: ฿*{}*"
+BOUNTY_LOAN_REPAY_AMOUNT = "\nRepay amount: ฿*{}*"
+BOUNTY_LOAN_AMOUNT_REPAID = "\nAmount paid: ฿*{}*"
+BOUNTY_LOAN_AMOUNT_REMAINING = "\nAmount remaining: ฿*{}*"
+BOUNTY_LOAN_AMOUNT_REMAINING_MONOSPACE = "\nAmount remaining: ฿`{}`"
+BOUNTY_LOAN_DATE = "\nDate: *{}*"
+BOUNTY_LOAN_DURATION = "\nDuration: *{}*"
+BOUNTY_LOAN_DEADLINE_DATE = "\nDeadline: *{}*"
+BOUNTY_LOAN_TAX = "\nTax: ฿{} \\({}%\\)"
+BOUNTY_LOAN_TOTAL = "\nTotal: ฿*{}*"
+BOUNTY_LOAN_STATUS = "\n\nStatus: {}*{}*"
+BOUNTY_LOAN_CANCELLED = "Loan cancelled"
+BOUNTY_LOAN_NOT_ENOUGH_BOUNTY = (
+    "You do not have enough belly to loan\n\nAvailable belly: ฿{}\nLoan amount: ฿*{}*\nTax: ฿{}"
+    " \\({}%\\)\nTotal: ฿*{}*\n\nYou can loan up to ฿`{}`"
+)
+BOUNTY_LOAN_ISSUE_COOLDOWN_ACTIVE = "You can issue a loan in *{}*"
+BOUNTY_LOAN_MAX_DURATION_EXCEEDED = (
+    f"A loan cannot last more than {Env.BOUNTY_LOAN_MAX_DURATION_DAYS.get_int()} days"
+)
+BOUNTY_LOAN_STATUS_AWAITING_LOANER_CONFIRMATION = "Awaiting loaner confirmation"
+BOUNTY_LOAN_STATUS_AWAITING_BORROWER_CONFIRMATION = "Awaiting borrower confirmation"
+BOUNTY_LOAN_STATUS_ACTIVE = "Active"
+BOUNTY_LOAN_STATUS_REPAID = "Re-paid"
+BOUNTY_LOAN_STATUS_EXPIRED = "Expired"
+BOUNTY_LOAN_STATUS_FORGIVEN = "Forgiven"
+BOUNTY_LOAN_EXPIRED_ACTION_WARNING_PREFIX = "\n\n_In case the loan is not repaid in time, "
+BOUNTY_LOAN_EXPIRED_ACTION_SUFFIX = (
+    "\nThe loan will be automatically forgiven if"
+    f" {Env.BOUNTY_LOAN_FORGIVENESS_DAYS.get_int()} days have passed since the expiration date and"
+    " at least double the loan amount has been repaid."
+)
+BOUNTY_LOAN_EXPIRED_ACTION_PREFIX = "\n\n_Since the loan was not repaid in time, "
+BOUNTY_LOAN_EXPIRED_ACTION_LOANER = (
+    "{}% of all new gained bounty by {} will be transferred to you until the loan is repaid."
+    + BOUNTY_LOAN_EXPIRED_ACTION_SUFFIX
+    + "_"
+)
+BOUNTY_LOAN_EXPIRED_ACTION_BORROWER = (
+    "{}% of all new gained bounty will be transferred to {} until the loan is repaid."
+    + BOUNTY_LOAN_EXPIRED_ACTION_SUFFIX
+    + "_"
+)
+BOUNTY_LOAN_EXPIRED_ACTION_LOANER_AND_BORROWER = (
+    "{}% of all new gained bounty by {} will be transferred to {} until the loan is repaid."
+    + BOUNTY_LOAN_EXPIRED_ACTION_SUFFIX
+    + "_"
+)
+BOUNTY_LOAN_AUTO_FORGIVEN = (
+    "\n\n>This loan was automatically forgiven since"
+    f" {Env.BOUNTY_LOAN_FORGIVENESS_DAYS.get_int()} days have passed since the expiration date and"
+    " at least double the loan amount has been repaid."
+)
+BOUNTY_LOAN_REQUEST = (
+    "*New Loan*\n"
+    + BOUNTY_LOAN_LOANER
+    + BOUNTY_LOAN_BORROWER
+    + BOUNTY_LOAN_AMOUNT
+    + BOUNTY_LOAN_REPAY_AMOUNT
+    + BOUNTY_LOAN_DURATION
+    + BOUNTY_LOAN_TAX
+    + BOUNTY_LOAN_TOTAL
+    + BOUNTY_LOAN_STATUS
+    + BOUNTY_LOAN_EXPIRED_ACTION_WARNING_PREFIX
+    + BOUNTY_LOAN_EXPIRED_ACTION_LOANER_AND_BORROWER
+)
+BOUNTY_LOAN_REQUEST_PREDATORY_WARNING = (
+    f"\n\n{Emoji.WARNING_STRONG}Warning, this is a predatory loan with a *{{}}%* interest rate."
+)
+BOUNTY_LOAN_REQUEST_MANAGE_TEXT = "\n\n" + surround_with_arrows("[Manage Loan]({})")
+
+# Bounty loan - Private Chat
+BOUNTY_LOAN_ITEM_TEXT = "{} ฿{} {} {}"
+BOUNTY_LOAN_ITEM_TEXT_FILL_IN = "Loan"
+BOUNTY_LOAN_ITEM_NOT_ACTIVE = "This loan is no longer active"
+BOUNTY_LOAN_ITEM_PAY_REQUEST = (
+    BOUNTY_LOAN_REPAY_AMOUNT.strip()
+    + BOUNTY_LOAN_AMOUNT_REPAID
+    + BOUNTY_LOAN_AMOUNT_REMAINING_MONOSPACE
+    + "\nCurrent bounty: ฿`{}`"
+    + "\n\n_Please send the amount you want to pay \\(send \\* to repay the maximum allowed by"
+    " your bounty\\)_"
+)
+BOUNTY_LOAN_ITEM_PAY_CONFIRMATION_REQUEST = "Are you sure you want to pay ฿*{}* for this loan?"
+BOUNTY_LOAN_ITEM_PAY_SUCCESS = "You have successfully paid ฿{} for this loan"
+BOUNTY_LOAN_ITEM_FORGIVE_CONFIRMATION_REQUEST = (
+    BOUNTY_LOAN_REPAY_AMOUNT.strip()
+    + BOUNTY_LOAN_AMOUNT_REPAID
+    + BOUNTY_LOAN_AMOUNT_REMAINING_MONOSPACE
+    + "\n\nAre you sure you want to forgive this loan?\nYou will not be able to collect the"
+    " remaining amount"
+)
+BOUNTY_LOAN_ITEM_FORGIVE_SUCCESS = "You have forgiven this loan"
+BOUNTY_LOAN_SOURCE = "\nSource: [{}]({})"
+BOUNTY_LOAN_SOURCE_USER = "Loan"
+BOUNTY_LOAN_SOURCE_PLUNDER = "Plunder"
+BOUNTY_LOAN_SOURCE_IMPEL_DOWN_BAIL = "Impel Down Bail"
+
+# Notification - Categories
+NOTIFICATION_CATEGORY_BOUNTY_GIFT = "Bounty Gift"
+NOTIFICATION_CATEGORY_BOUNTY_LOAN = "Bounty Loan"
+NOTIFICATION_CATEGORY_CREW = "Crew"
+NOTIFICATION_CATEGORY_DELETED_MESSAGE = "Deleted Message"
+NOTIFICATION_CATEGORY_GAME = "Game"
+NOTIFICATION_CATEGORY_IMPEL_DOWN = "Impel Down"
+NOTIFICATION_CATEGORY_LOCATION = "Location"
+NOTIFICATION_CATEGORY_PREDICTION = "Prediction"
+NOTIFICATION_CATEGORY_DEVIL_FRUIT = "Devil Fruit"
+NOTIFICATION_CATEGORY_WARLORD = "Warlord"
+NOTIFICATION_CATEGORY_DAVY_BACK_FIGHT = "Davy Back Fight"
+NOTIFICATION_CATEGORY_FIGHT = "Fight"
+NOTIFICATION_CATEGORY_PLUNDER = "Plunder"
+
+# Notification - Crew Leave
+CREW_LEAVE_NOTIFICATION = "{} has left the Crew"
+CREW_LEAVE_NOTIFICATION_DESCRIPTION = (
+    "If to be notified when a member leaves the Crew. \nApplicable only if you are the Captain or"
+    " First Mate of the Crew."
+)
+CREW_LEAVE_NOTIFICATION_KEY = "Crew leave"
+# Notification - Crew Member removed
+CREW_MEMBER_REMOVE_NOTIFICATION = "You have been expelled from the Crew"
+CREW_MEMBER_REMOVE_NOTIFICATION_DESCRIPTION = (
+    "If to be notified when you are expelled from the Crew."
+)
+CREW_MEMBER_REMOVE_NOTIFICATION_KEY = "Crewmate expelled"
+# Notification - Crew Disband
+CREW_DISBAND_NOTIFICATION = "Your Crew has been disbanded"
+CREW_DISBAND_NOTIFICATION_DESCRIPTION = "If to be notified when your Crew is disbanded."
+CREW_DISBAND_NOTIFICATION_KEY = "Crew disband"
+# Notification - Crew disband warning
+CREW_DISBAND_WARNING_NOTIFICATION = (
+    "You have not been active in the current Bounty season."
+    "\nIn case of continued inactivity, your Crew will be disbanded on the next bounty reset in {}"
+)
+CREW_DISBAND_WARNING_NOTIFICATION_DESCRIPTION = (
+    "If to be notified a week before your Crew is disbanded due to inactivity."
+    "\nApplicable only if you are the Captain of the Crew."
+)
+CREW_DISBAND_WARNING_NOTIFICATION_KEY = "Crew disband warning"
+# Notification - Crew ability activated
+CREW_ABILITY_ACTIVATED_NOTIFICATION = (
+    "The following ability has been activated in your Crew:\n\n*Ability*: {}"
+    " \\({}%\\)\n*Duration*: {}"
+)
+CREW_ABILITY_ACTIVATED_NOTIFICATION_DESCRIPTION = (
+    "If to be notified when an ability is activated in your Crew."
+)
+CREW_ABILITY_ACTIVATED_NOTIFICATION_KEY = "Crew ability activated"
+# Notification - Crew first mate promotion
+CREW_FIRST_MATE_PROMOTION_NOTIFICATION = (
+    "Congratulations! You have been promoted to First Mate of the Crew.\n\nPrivileges:"
+    + CREW_FIRST_MATE_PRIVILEGES
+)
+CREW_FIRST_MATE_PROMOTION_NOTIFICATION_DESCRIPTION = (
+    "If to be notified when you are promoted to First Mate of the Crew."
+)
+CREW_FIRST_MATE_PROMOTION_NOTIFICATION_KEY = "First Mate promotion"
+# Notification - Crew first mate demotion
+CREW_FIRST_MATE_DEMOTION_NOTIFICATION = "You have been demoted from First Mate of the Crew."
+CREW_FIRST_MATE_DEMOTION_NOTIFICATION_DESCRIPTION = (
+    "If to be notified when you are demoted from First Mate of the Crew."
+)
+CREW_FIRST_MATE_DEMOTION_NOTIFICATION_KEY = "First Mate demotion"
+# Notification - Crew Captain promotion
+CREW_CAPTAIN_PROMOTION_NOTIFICATION = (
+    "Congratulations! You have been promoted to Captain of the Crew"
+)
+CREW_CAPTAIN_PROMOTION_NOTIFICATION_DESCRIPTION = (
+    "If to be notified when you are promoted to Captain of the Crew."
+)
+CREW_CAPTAIN_PROMOTION_NOTIFICATION_KEY = "Captain promotion"
+
+# Notification - Crew join request accepted
+CREW_JOIN_REQUEST_ACCEPTED_NOTIFICATION = (
+    "Congratulations! Your request to join *{}* has been accepted"
+)
+CREW_JOIN_REQUEST_ACCEPTED_NOTIFICATION_DESCRIPTION = (
+    "If to be notified when your request to join a Crew is accepted."
+)
+CREW_JOIN_REQUEST_ACCEPTED_NOTIFICATION_KEY = "Join request accepted"
+# Notification - Crew join request rejected
+CREW_JOIN_REQUEST_REJECTED_NOTIFICATION = "Your request to join *{}* has been rejected"
+CREW_JOIN_REQUEST_REJECTED_NOTIFICATION_DESCRIPTION = (
+    "If to be notified when your request to join a Crew is rejected."
+)
+CREW_JOIN_REQUEST_REJECTED_NOTIFICATION_KEY = "Join request rejected"
+# Notification - Crew conscription start
+CREW_CONSCRIPTION_START_NOTIFICATION = (
+    "You have been conscripted to {}.\n\nYou can't leave the Crew for *{}*."
+)
+CREW_CONSCRIPTION_START_NOTIFICATION_DESCRIPTION = (
+    "If to be notified when you are conscripted to a Crew."
+)
+CREW_CONSCRIPTION_START_NOTIFICATION_KEY = "Conscription start"
+# Notification - Crew conscription start captain
+CREW_CONSCRIPTION_START_CAPTAIN_NOTIFICATION = (
+    "{} has been conscripted from your Crew to {}.\n\nThey can't leave the Crew for *{}*."
+)
+CREW_CONSCRIPTION_START_CAPTAIN_NOTIFICATION_DESCRIPTION = (
+    "If to be notified when a member of your Crew is conscripted to another Crew."
+    "\nApplicable only if you are the Captain of the Crew"
+)
+CREW_CONSCRIPTION_START_CAPTAIN_NOTIFICATION_KEY = "Conscription start Captain"
+# Notification - Crew conscription end
+CREW_CONSCRIPTION_END_NOTIFICATION = (
+    "Your conscription period towards {} has ended, you can now leave the Crew"
+)
+CREW_CONSCRIPTION_END_NOTIFICATION_DESCRIPTION = (
+    "If to be notified when your conscription period ends."
+)
+CREW_CONSCRIPTION_END_NOTIFICATION_KEY = "Conscription end"
+
+# Notification - Davy Back Fight request accepted
+DAVY_BACK_FIGHT_REQUEST_ACCEPTED_NOTIFICATION = (
+    "{} has accepted your Crew's Davy Back Fight challenge, it will start in"
+    f" {Env.DAVY_BACK_FIGHT_START_WAIT_TIME.get()} minutes.\n\nClick `{KEY_MANAGE}` to review"
+    " and change the players"
+)
+DAVY_BACK_FIGHT_REQUEST_ACCEPTED_NOTIFICATION_DESCRIPTION = (
+    "If to be notified when your Crew's Davy Back Fight challenge is accepted."
+    "\nApplicable only if you are the Captain of the Crew"
+)
+DAVY_BACK_FIGHT_REQUEST_ACCEPTED_NOTIFICATION_KEY = "Challenge accepted"
+# Notification - Davy Back Fight request rejected
+CREW_DAVY_BACK_FIGHT_REQUEST_REJECTED_NOTIFICATION = (
+    "{} has rejected your Crew's Davy Back Fight challenge"
+)
+DAVY_BACK_FIGHT_REQUEST_REJECTED_NOTIFICATION_DESCRIPTION = (
+    "If to be notified when your Crew's Davy Back Fight challenge is rejected."
+    "\nApplicable only if you are the Captain of the Crew"
+)
+DAVY_BACK_FIGHT_REQUEST_REJECTED_NOTIFICATION_KEY = "Challenge rejected"
+# Notification - Davy Back Fight start
+DAVY_BACK_FIGHT_START_NOTIFICATION = (
+    "You have been chosen as a Player for a Davy Back Fight against {}!"
+    + CREW_DAVY_BACK_FIGHT_PARTICIPANTS_RULES_WITH_TIME
+)
+DAVY_BACK_FIGHT_START_NOTIFICATION_DESCRIPTION = (
+    "If to be notified when a Davy Back Fight in which you are a Player starts"
+)
+DAVY_BACK_FIGHT_START_NOTIFICATION_KEY = "Start"
+# Notification - Davy Back Fight end
+DAVY_BACK_FIGHT_END_NOTIFICATION = ""
+DAVY_BACK_FIGHT_END_NOTIFICATION_DESCRIPTION = (
+    "If to be notified when a Davy Back Fight in which you are a Player ends"
+)
+DAVY_BACK_FIGHT_END_NOTIFICATION_KEY = "End"
+DAVY_BACK_FIGHT_END_NOTIFICATION_WON = (
+    f"{Emoji.CONFETTI}Congratulations, your Crew has won the Davy Back Fight against "
+    "{}!\n\nYou have earned"
+    " ฿*{}* for contributing to {}% of the total"
+    " gain."
+    f"{CREW_DAVY_BACK_FIGHT_WON}"
+)
+DAVY_BACK_FIGHT_END_NOTIFICATION_LOST = (
+    f"{Emoji.LOG_NEGATIVE}Your Crew has lost the Davy Back Fight against "
+    "{}."
+    f"{CREW_DAVY_BACK_FIGHT_LOST}"
+)
+
+# Notification - Game turn
+GAME_TURN_NOTIFICATION = (
+    f"It's your turn to play in {{}} against {{}}.\n\n[{Emoji.RIGHT_ARROW}Click here to view the"
+    f" game{Emoji.LEFT_ARROW}]" + "({}){}"
+)
+GAME_TURN_NOTIFICATION_DESCRIPTION = (
+    "If to be notified when it is your turn to play in a game if no action is taken for"
+    f" {Env.GAME_TURN_NOTIFICATION_TIME_SECONDS.get_int()} seconds"
+)
+GAME_TURN_NOTIFICATION_KEY = "Game turn"
+# Notification - Location
+LOCATION_UPDATE_NOTIFICATION = "{}Congratulations {}!\nYou are now {} {}\n\n{}"
+LOCATION_NEXT_LEVEL_REQUIREMENT = "_Requirement for next location: ฿*{}*_"
+LOCATION_CURRENT_LEVEL_MAX = "_You have reached the maximum location_"
+LOCATION_UPDATE_NOTIFICATION_DESCRIPTION = "If to be notified when you level up to a new location."
+LOCATION_UPDATE_NOTIFICATION_KEY = "Location update"
+# Notification - Impel Down restriction placed
+IMPEL_DOWN_RESTRICTION_PLACED_NOTIFICATION = (
+    f"{Emoji.DISCIPLINARY_ACTION}*DISCIPLINARY ACTION*{Emoji.DISCIPLINARY_ACTION}\n\n*Reason*:"
+    " {}\n\n*Restrictions*:{}{}{}"
+)
+IMPEL_DOWN_RESTRICTION_PLACED_NOTIFICATION_BOUNTY_HALVED = "\n- Bounty halved"
+IMPEL_DOWN_RESTRICTION_PLACED_NOTIFICATION_BOUNTY_ERASED = "\n- Bounty erased"
+IMPEL_DOWN_RESTRICTIONS = (
+    "\n• You can't acquire any new bounty"
+    "\n• You can't appear in the leaderboard"
+    "\n• You can't challenge other users or play games"
+    "\n• You can't bet in polls"
+)
+IMPEL_DOWN_RESTRICTION_PLACED_NOTIFICATION_DURATION = "\n\n*Duration*: {}"
+IMPEL_DOWN_RESTRICTION_PLACED_NOTIFICATION_DURATION_PERMANENT = "Permanent"
+IMPEL_DOWN_RESTRICTION_BAIL_GUIDE = (
+    "\n\nYou or a Crewmate can post bail, at a cost of"
+    f" ฿*{Env.IMPEL_DOWN_BAIL_PER_MINUTE.get_belly()}* for every minute left in your sentence."
+    f" \n\\(`{PVT_KEY_CREW}`-\\>`{PVT_KEY_CREW_MEMBERS}`-\\>"
+    f"Select-\\>`{KEY_POST_BAIL}`\\)"
+)
+IMPEL_DOWN_RESTRICTION_PLACED_NOTIFICATION_DESCRIPTION = (
+    "If to be notified when you are restricted"
+)
+IMPEL_DOWN_RESTRICTION_PLACED_NOTIFICATION_KEY = "Restriction placed"
+# Notification - Impel Down restriction removed
+IMPEL_DOWN_RESTRICTION_REMOVED_NOTIFICATION = "All restrictions have been removed"
+IMPEL_DOWN_RESTRICTION_REMOVED_NOTIFICATION_DESCRIPTION = (
+    "If to be notified when all restrictions are removed"
+)
+IMPEL_DOWN_RESTRICTION_REMOVED_NOTIFICATION_KEY = "Restriction removed"
+# Notification - Impel Down bail posted
+IMPEL_DOWN_BAIL_POSTED_NOTIFICATION = (
+    "{} has paid *฿{}* to free you from Impel Down \\({} was left in your sentence\\)"
+)
+IMPEL_DOWN_BAIL_POSTED_NOTIFICATION_DESCRIPTION = "If to be notified when bail is posted for you"
+IMPEL_DOWN_BAIL_POSTED_NOTIFICATION_KEY = "Bail posted"
+
+# Notification - Prediction result
+PREDICTION_RESULT_NOTIFICATION = 'You *{}* ฿{} in the prediction "*{}*"{}{}{}'
+PREDICTION_RESULT_NOTIFICATION_WAGER_REFUNDED = "_\n\n\\(Your wager was refunded\\)_"
+PREDICTION_RESULT_NOTIFICATION_WAGER_REFUNDED_PARTIAL = "_\n\n\\(You have been refunded ฿{}\\)_"
+PREDICTION_RESULT_NOTIFICATION_WAGER_REFUNDED_NO_CORRECT_OPTIONS = (
+    "_\n\n\\(Your wager was refunded because there were no correct options\\)_"
+)
+PREDICTION_RESULT_NOTIFICATION_OPTION = "\n{}{}"
+PREDICTION_RESULT_NOTIFICATION_OPTION_NO_EMOJI = "\n- {}"
+PREDICTION_RESULT_NOTIFICATION_YOUR_OPTION = "\n\n*Your option*: {}"
+PREDICTION_RESULT_NOTIFICATION_YOUR_OPTIONS = "\n\n*Your options*: {}"
+PREDICTION_RESULT_NOTIFICATION_CORRECT_OPTION = "\n\n*Correct option*: {}"
+PREDICTION_RESULT_NOTIFICATION_CORRECT_OPTIONS = "\n\n*Correct options*: {}"
+PREDICTION_RESULT_NOTIFICATION_DESCRIPTION = (
+    "If to be notified of the outcome of a prediction you participated in"
+)
+PREDICTION_RESULT_NOTIFICATION_KEY = "Prediction result"
+# Notification - Prediction bet invalid
+PREDICTION_BET_INVALID_BET_HAS = "bet has"
+PREDICTION_BET_INVALID_BETS_HAVE = "bets have"
+PREDICTION_BET_INVALID_NOTIFICATION = (
+    'The following {} been removed from the prediction "*{}*"'
+    + " because {} placed after the cut off time \\({}\\):\n{}"
+    + "\n\n_You have been refunded ฿{}_"
+)
+PREDICTION_BET_INVALID_NOTIFICATION_OPTION = "\n- {} \\({}\\)"
+PREDICTION_BET_INVALID_NOTIFICATION_DESCRIPTION = (
+    "If to be notified when a bet you placed is removed from a because it was placed after the cut"
+    " off time"
+)
+PREDICTION_BET_INVALID_NOTIFICATION_KEY = "Prediction bet removed"
+# Notification - Deleted message because of arrest
+ABOVE_MESSAGE_DELETED_FROM_CHAT_GROUP = (
+    f"The above message was deleted from the Group Chat because you "
+)
+DELETED_MESSAGE_ARREST_NOTIFICATION = f"{ABOVE_MESSAGE_DELETED_FROM_CHAT_GROUP} are arrested"
+DELETED_MESSAGE_ARREST_NOTIFICATION_DESCRIPTION = (
+    "If to be notified when a message you sent in the Group Chat was deleted because you are"
+    " arrested"
+)
+DELETED_MESSAGE_ARREST_NOTIFICATION_KEY = "Deleted message arrest"
+# Notification - Deleted message because of user is muted
+DELETED_MESSAGE_MUTE_NOTIFICATION = f"{ABOVE_MESSAGE_DELETED_FROM_CHAT_GROUP} are muted"
+DELETED_MESSAGE_MUTE_NOTIFICATION_DESCRIPTION = (
+    "If to be notified when a message you sent in the Group Chat was deleted because you are muted"
+)
+DELETED_MESSAGE_MUTE_NOTIFICATION_KEY = "Deleted message mute"
+# Notification - Deleted message because of user has not reached the required location
+DELETED_MESSAGE_LOCATION_NOTIFICATION = (
+    f"{ABOVE_MESSAGE_DELETED_FROM_CHAT_GROUP} have not reached the required location to send this"
+    " type of message.\n\n*Your location*: {}\n*Required location*: {}"
+)
+DELETED_MESSAGE_LOCATION_NOTIFICATION_DESCRIPTION = (
+    "If to be notified when a message you sent in the Group Chat was deleted because you have not"
+    " reached the required location to send that type of message"
+)
+DELETED_MESSAGE_LOCATION_NOTIFICATION_KEY = "Deleted message location"
+# Notification - Bounty Gift
+BOUNTY_GIFT_RECEIVED_NOTIFICATION = "You have been gifted ฿{} by {}"
+BOUNTY_GIFT_RECEIVED_NOTIFICATION_DESCRIPTION = "If to be notified when you are gifted bounties"
+BOUNTY_GIFT_RECEIVED_NOTIFICATION_KEY = "Bounty gift"
+# Notification - Devil Fruit Awarded
+DEVIL_FRUIT_EAT_OR_SELL = (
+    "\n\nYou can eat it or sell it the Shop or in a Chat Group"
+    f"\\({CommandName.DEVIL_FRUIT_SELL.get_formatted()} <price\\> command\\)"
+)
+DEVIL_FRUIT_AWARDED_NOTIFICATION = (
+    "You have been awarded the following Devil Fruit:\n\n*{}*\nReason: {}"
+    + DEVIL_FRUIT_EAT_OR_SELL
+)
+DEVIL_FRUIT_AWARDED_NOTIFICATION_DESCRIPTION = (
+    "If to be notified when you are awarded a Devil Fruit"
+)
+DEVIL_FRUIT_AWARDED_NOTIFICATION_KEY = "Devil Fruit award"
+# Notification - Devil Fruit Expired
+DEVIL_FRUIT_EXPIRED_NOTIFICATION = "Your Devil Fruit *{}* has expired and has been revoked"
+DEVIL_FRUIT_EXPIRED_NOTIFICATION_DESCRIPTION = "If to be notified when your Devil Fruit expires"
+DEVIL_FRUIT_EXPIRED_NOTIFICATION_KEY = "Devil Fruit expired"
+# Notification - Devil Fruit revoke
+DEVIL_FRUIT_REVOKE_NOTIFICATION = "Your Devil Fruit *{}* has been revoked"
+DEVIL_FRUIT_REVOKE_NOTIFICATION_DESCRIPTION = "If to be notified when your Devil Fruit is revoked"
+DEVIL_FRUIT_REVOKE_NOTIFICATION_KEY = "Devil Fruit revoked"
+# Notification - Devil Fruit revoke warning
+DEVIL_FRUIT_REVOKE_WARNING_NOTIFICATION = (
+    "You have not appeared in the last"
+    f" {Env.DEVIL_FRUIT_MAINTAIN_MIN_LATEST_LEADERBOARD_APPEARANCE.get_int() - 1}"
+    " [global leaderboards]({})."
+    "\nIf you do not appear in the next leaderboard, your Devil Fruit *{}* will be revoked."
+)
+DEVIL_FRUIT_REVOKE_WARNING_NOTIFICATION_DESCRIPTION = (
+    "If to be notified a week before the Devil Fruit you ate is revoked due to not appearing in"
+    " the leaderboard for"
+    f" {Env.DEVIL_FRUIT_MAINTAIN_MIN_LATEST_LEADERBOARD_APPEARANCE.get()} consecutive leaderboards"
+)
+DEVIL_FRUIT_REVOKE_WARNING_NOTIFICATION_KEY = "Devil Fruit revoke warning"
+# Notification - Devil Fruit Sold
+DEVIL_FRUIT_SOLD_NOTIFICATION = (
+    "Your Devil Fruit has been bought!\n\n*Name*: {}\n*Price*: ฿{}\n*Buyer*: {}"
+)
+DEVIL_FRUIT_SOLD_NOTIFICATION_DESCRIPTION = "If to be notified when your Devil Fruit is sold"
+DEVIL_FRUIT_SOLD_NOTIFICATION_KEY = "Devil Fruit Sold"
+# Notification - Bounty Loan
+BOUNTY_LOAN_NOTIFICATION_GO_TO_ITEM_BUTTON_TEXT = "Go to loan"
+# Notification - Bounty Loan Payment
+BOUNTY_LOAN_PAYMENT_NOTIFICATION = "You have received a payment of ฿{} from {} for your loan"
+BOUNTY_LOAN_PAYMENT_NOTIFICATION_DESCRIPTION = (
+    "If to be notified when you receive a payment for your loan"
+)
+BOUNTY_LOAN_PAYMENT_NOTIFICATION_KEY = "Bounty loan payment"
+# Notification - Bounty Loan Forgiven
+BOUNTY_LOAN_FORGIVEN_NOTIFICATION = "Your loan of ฿{} from {} has been forgiven"
+BOUNTY_LOAN_FORGIVEN_NOTIFICATION_DESCRIPTION = "If to be notified when your loan is forgiven"
+BOUNTY_LOAN_FORGIVEN_NOTIFICATION_KEY = "Bounty loan forgiven"
+# Notification - Bounty Loan Expired
+BOUNTY_LOAN_EXPIRED_NOTIFICATION = (
+    "Your loan of ฿{} from {} has expired."
+    + BOUNTY_LOAN_EXPIRED_ACTION_PREFIX
+    + BOUNTY_LOAN_EXPIRED_ACTION_BORROWER
+)
+BOUNTY_LOAN_EXPIRED_NOTIFICATION_DESCRIPTION = "If to be notified when your loan expires"
+BOUNTY_LOAN_EXPIRED_NOTIFICATION_KEY = "Bounty loan expired"
+# Notification - Warlord appointment
+WARLORD_APPOINTMENT_NOTIFICATION = (
+    "Congratulations, you have been appointed as a Warlord!\n\n*Epithet*:"
+    " {}\n*Duration*: {}\n*Reason*: {}\n\n*Privileges*\n•"
+    f" {Env.PIRATE_KING_TRANSACTION_TAX_DISCOUNT.get_int()}% off tax on gifts and"
+    " loans\n• Immunity from Devil Fruit revocation for not appearing in the latest"
+    f" {Env.DEVIL_FRUIT_MAINTAIN_MIN_LATEST_LEADERBOARD_APPEARANCE.get_int()} leaderboards\n•"
+    " View inferior ranks status \\(Emperor and below\\)\n• Custom Warlord Bounty"
+    " Poster\n• View New World users"
+    " in logs\n\n_You will appear in the weekly leaderboard exclusively with Warlord"
+    " rank \\(only for the global leaderboard\\)_"
+)
+WARLORD_APPOINTMENT_NOTIFICATION_DESCRIPTION = (
+    "If to be notified when you are appointed as a Warlord"
+)
+WARLORD_APPOINTMENT_NOTIFICATION_KEY = "Warlord appointment"
+# Notification - Warlord revocation
+WARLORD_REVOCATION_NOTIFICATION = "Your Warlord status has been revoked\n\n*Reason*: {}"
+WARLORD_REVOCATION_NOTIFICATION_DESCRIPTION = (
+    "If to be notified when your Warlord status is revoked"
+)
+WARLORD_REVOCATION_NOTIFICATION_KEY = "Warlord revocation"
+
+# Notification - Legendary Pirate appointment
+LEGENDARY_PIRATE_APPOINTMENT_NOTIFICATION = (
+    "Congratulations, you have been appointed as a Legendary Pirate!\n\n*Epithet*: {}\n\n"
+    "*Duration*: {}\n\n*Reason*: {}\n\n*Privileges*\n• Complete immunity from all combat-related"
+    " losses\n• Exemption from bounty taxes and income tax\n• Permanent boss status\n•"
+    " Immunity from Devil Fruit revocation"
+)
+LEGENDARY_PIRATE_APPOINTMENT_NOTIFICATION_PERMANENT_FOOTER = (
+    "\n\n_You are now a permanent Legendary Pirate and will always appear on all global"
+    " leaderboards_"
+)
+LEGENDARY_PIRATE_APPOINTMENT_NOTIFICATION_DESCRIPTION = (
+    "If to be notified when you are appointed as a Legendary Pirate"
+)
+LEGENDARY_PIRATE_APPOINTMENT_NOTIFICATION_KEY = "Legendary Pirate appointment"
+LEGENDARY_PIRATE_REVOCATION_NOTIFICATION = (
+    "Your Legendary Pirate status has been revoked\n\n*Reason*: {}"
+)
+LEGENDARY_PIRATE_REVOCATION_NOTIFICATION_DESCRIPTION = (
+    "If to be notified when your Legendary Pirate status is revoked"
+)
+LEGENDARY_PIRATE_REVOCATION_NOTIFICATION_KEY = "Legendary Pirate revocation"
+NOTIFICATION_CATEGORY_LEGENDARY_PIRATE = "Legendary Pirate"
+
+# Notification - Fight attack
+FIGHT_ATTACK_NOTIFICATION = "You {} in a fight against {}{}\n\nAmount {}: ฿*{}*"
+FIGHT_ATTACK_NOTIFICATION_DESCRIPTION = "If to be notified when you are fought by another player"
+FIGHT_ATTACK_NOTIFICATION_KEY = "Fight attack"
+FIGHT_ATTACK_CAN_REVENGE = (
+    "\n\n>You can revenge this fight for the next *{}* from"
+    " the fight log, regardless of any cooldown or opponent's immunity."
+)
+FIGHT_ATTACK_CANNOT_REVENGE = (
+    "\n\n>Since this attack was in response to your previous [fight]({}), it cannot be revenged"
+)
+
+# Notification - Plunder attack
+PLUNDER_ATTACK_NOTIFICATION = ""
+PLUNDER_ATTACK_NOTIFICATION_WON = (
+    "You defeated {} while they were trying to plunder you"
+    + Emoji.CONFETTI
+    + "\n\nAmount won \\(loan\\): ฿*{}*"
+)
+PLUNDER_ATTACK_NOTIFICATION_LOST = (
+    "You were plundered by {}" + Emoji.LOSER + "\n\nAmount lost: ฿*{}*"
+)
+PLUNDER_ATTACK_NOTIFICATION_DESCRIPTION = (
+    "If to be notified when you are plundered by another player"
+)
+PLUNDER_ATTACK_NOTIFICATION_KEY = "Plunder attack"
+PLUNDER_ATTACK_CAN_REVENGE = (
+    "\n\n>You can revenge this plunder for the next *{}* from"
+    " the plunder log, regardless of any cooldown or opponent's immunity."
+)
+PLUNDER_ATTACK_CANNOT_REVENGE = (
+    "\n\n>Since this attack was in response to your previous [plunder]({}), it cannot be revenged"
+)
+
+# Notification - Game Outcome
+GAME_OUTCOME_NOTIFICATION = "{}You {} ฿*{}* in the *{}* challenge against {}"
+GAME_OUTCOME_NOTIFICATION_TIME_TERMINOLOGY = "{}\n\n{}"
+GAME_OUTCOME_NOTIFICATION_DRAW = (
+    "The *{}* challenge against {} ended in a draw." "\nYour wager \\(฿*{}*\\) has been returned"
+)
+GAME_OUTCOME_NOTIFICATION_DESCRIPTION = (
+    "If to be notified of the outcome of a game \\(only global\\)"
+)
+GAME_OUTCOME_NOTIFICATION_KEY = "Game outcome"
+
+# List
+LIST_OVERVIEW = (
+    "Select" + " {} *{}* from the list below\n{}"
+)  # In the chunk to avoid IDE recognizing it as SQL
+LIST_OVERVIEW_NO_ITEMS = "No {} found"
+LIST_ITEM_TEXT = "\n*{}*. {}"
+LIST_FOOTER = "\n\n_Showing {}-{} of {} items_"
+LEGEND = "legend"
+LIST_EMOJI_LEGEND = "\n\n>*Legend*{}"
+LIST_EMOJI_LEGEND_ITEM = "\n>{} {} \\({}\\)"
+LIST_FILTER_SEND_PART_OF_STRING = "\n\n>_Send a part of the {} to restrict the search_"
+LIST_FILTER_ACTIVE_FILTERS = "\n\n_*Active filters*:{}_"
+LIST_FILTER_ITEM = "\n• {}"
+LIST_FILTER_ITEM_CONTAINS = "{} contains '{}'"
+LIST_FILTER_ONLY = "Only *{}*"
+NAVIGATION_LIMIT_REACHED = "Limit reached"
+
+# Logs
+LOG_ITEM_DETAIL_GENERIC_OUTCOME_TEXT = "{} *{}*"
+LOG_ITEM_DETAIL_GENERIC_OUTCOME_TEXT_NO_BOLD = "{} {}"
+LOG_ITEM_DETAIL_OUTCOME_TEXT = "{}You *{}*"
+LOG_ITEM_DETAIL_OUTCOME_BELLY_TEXT = "{}You {} ฿*{}*"
+LOG_ITEM_DETAIL_STATUS_TEXT = "*Status*: {}"
+LOG_ITEM_DETAIL_GO_TO_MESSAGE = (
+    f"\n\n{Emoji.RIGHT_ARROW}[Go to message]("
+    + "{}"
+    + f"){Emoji.LEFT_ARROW}"
+    + "\n_\\(The message may no longer be available\\)_"
+)
+LOG_ITEM_DETAIL_NO_PERMISSION = "You are not authorized to view this item"
+LOG_STATS_TEXT = "*{} Statistics*\n\n{}"
+LOG_STATS_NOT_ENOUGH_DATA = "Not enough data to generate statistics for this log"
+
+# Logs - Fight
+FIGHT_LOG_KEY = "Fights"
+FIGHT_LOG_ITEM_DETAIL_TEXT_FILL_IN = "Fight"
+FIGHT_LOG_ITEM_TEXT = "{} vs {} \\(฿{}\\)"
+FIGHT_LOG_ITEM_DETAIL_TEXT = "*{}*: {}\n*Date*: {}\n*Win probability*: {}%\n\n{}{}"
+FIGHT_LOG_STATS_TEXT = (
+    "*Total fights*: {}\n*Wins*: {} \\({}%\\)\n*Losses*: {} \\({}%\\)\n*Belly won*: ฿{}\n*Belly"
+    " lost*: ฿{}\n*Max belly won*: [฿{} \\({}\\)]({})\n*Max belly lost*: [฿{} \\({}\\)]({})\n*Most"
+    " fought user*: {} \\({}x\\)"
+)
+FIGHT_LOG_ITEM_DETAIL_TEXT_REVENGED = "\n\n>This fight has been [revenged]({})"
+FIGHT_LOG_ITEM_DETAIL_TEXT_IN_RESPONSE = (
+    "\n\n>This fight was in revenge to a previous [attack]({})"
+)
+
+# Logs . Plunder
+PLUNDER_LOG_KEY = "Plunders"
+PLUNDER_LOG_ITEM_DETAIL_TEXT_FILL_IN = "Plunder"
+PLUNDER_LOG_ITEM_TEXT = "{} vs {} \\(฿{}\\)"
+PLUNDER_LOG_ITEM_DETAIL_TEXT = "*{}*: {}\n*Date*: {}\n*Win probability*: {}%\n\n{}{}"
+PLUNDER_LOG_ITEM_DETAIL_SENTENCE_DURATION = "\n\n*Impel Down sentence*: {}"
+PLUNDER_LOG_STATS_TEXT = (
+    "*Total plunders*: {}"
+    "\n*Wins*: {} \\({}%\\)"
+    "\n*Losses*: {} \\({}%\\)"
+    "\n*Belly stole*: ฿{}"
+    "\n*Belly lost*: ฿{}"
+    "\n*Max belly stolen*: [฿{} \\({}\\)]({})"
+    "\n*Max belly lost*: [฿{} \\({}\\)]({})"
+    "\n*Max Impel Down sentence*: [{}]({})"
+    "\n*Most plundered user*: {} \\({}x\\)"
+)
+PLUNDER_LOG_ITEM_DETAIL_TEXT_REVENGED = "\n\n>This plunder has been [revenged]({})"
+PLUNDER_LOG_ITEM_DETAIL_TEXT_IN_RESPONSE = (
+    "\n\n>This plunder was in revenge to a previous [attack]({})"
+)
+PLUNDER_LOG_ITEM_DETAIL_TEXT_WON_LOAN = "You gained ฿*{}* \\(it will be repaid by a [loan]({})\\)"
+PLUNDER_LOG_ITEM_DETAIL_TEXT_WON_IMMUNE = (
+    "You gained nothing \\(the opponent was immune to bounty loss\\)"
+)
+
+# Logs - DocQ
+DOC_Q_GAME_LOG_KEY = "Doc Q"
+DOC_Q_GAME_LOG_ITEM_DETAIL_TEXT_FILL_IN = "Doc Q Game"
+DOC_Q_GAME_LOG_ITEM_TEXT = "{} ฿{}"
+DOC_Q_GAME_LOG_ITEM_DETAIL_TEXT = "*Date*: {}\n*Correct apple*: {}°\n\n{}{}"
+DOC_Q_GAME_LOG_STATS_TEXT = (  # Logs - Game
+    "*Total summons*: {}\n*Wins*: {} \\({}%\\)\n*Losses*: {} \\({}%\\)\n*Belly won*: ฿{}\n*Belly"
+    " lost*: ฿{}\n*Max belly won*: [฿{}]({})\n*Max belly lost*: [฿{}]({})\n"
+)
+
+GAME_LOG_KEY = "Challenges"
+GAME_LOG_ITEM_DETAIL_TEXT_FILL_IN = "Challenge"
+GAME_LOG_ITEM_TEXT = "{} vs {} \\(฿{}\\)"
+GAME_LOG_ITEM_DETAIL_TEXT = "*{}*: {}\n*Game*: {}\n*Date*: {}\n*Wager*: ฿{}\n\n{}{}"
+GAME_LOG_STATS_TEXT = (
+    "*Total challenges*: {}\n*Wins*: {} \\({}%\\)\n*Losses*: {} \\({}%\\)\n*Draws*: {}"
+    " \\({}%\\)\n*Belly won*: ฿{}\n*Belly lost*: ฿{}\n*Max belly won*: [฿{} \\({}\\)]({})\n*Max"
+    " belly lost*: [฿{} \\({}\\)]({})\n*Most challenged user*: {} \\({}x\\)\n*Most played game*:"
+    " {} \\({}x\\)"
+)
+
+# Logs - Bounty Gift
+BOUNTY_GIFT_LOG_KEY = "Bounty Gifts"
+BOUNTY_GIFT_LOG_ITEM_DETAIL_TEXT_FILL_IN = "Bounty Gift"
+BOUNTY_GIFT_LOG_ITEM_TEXT = "{} ฿{} {} {}"
+BOUNTY_GIFT_LOG_ITEM_DETAIL_TAX_TEXT = "\n*Tax*: ฿{} \\({}%\\)\n*Total*: ฿{}"
+BOUNTY_GIFT_LOG_ITEM_DETAIL_TEXT = (
+    f"*{{}}*: {{}}\n*Date*: {{}}\n*Amount*: ฿{{}}{{}}{LOG_ITEM_DETAIL_GO_TO_MESSAGE}"
+)
+BOUNTY_GIFT_LOG_STATS_TEXT = (
+    "*Total gifts*: {}\n*Total given*: ฿{}\n*Total received*: ฿{}\n*Highest given*: [฿{}"
+    " \\({}\\)]({})\n*Highest received*: [฿{} \\({}\\)]({})\n*Top receiver*: {} \\(฿{}\\)\n*Top"
+    " giver*: {} \\(฿{}\\)"
+)
+BOUNTY_GIFT_LOG_LEGEND_SENT = "Sent"
+BOUNTY_GIFT_LOG_LEGEND_RECEIVED = "Received"
+
+# Logs - Legendary Pirate
+LEGENDARY_PIRATE_LOG_KEY = "Legendary Pirates"
+LEGENDARY_PIRATE_LOG_ITEM_DETAIL_TEXT_FILL_IN = "Legendary Pirate"
+LEGENDARY_PIRATE_LOG_ITEM_TEXT = "{}"
+LEGENDARY_PIRATE_LOG_ITEM_DETAIL_TEXT = "*{}*\nEpithet: {}\n\n*Reason*: {}"
+
+# Logs - Warlord
+WARLORD_LOG_KEY = "Warlords"
+WARLORD_LOG_ITEM_DETAIL_TEXT_FILL_IN = "Warlord"
+WARLORD_LOG_ITEM_TEXT = "{}"
+WARLORD_LOG_ITEM_DETAIL_TEXT = "*{}*\nEpithet: {}\n\n*Reason*: {}"
+
+# Logs - New World Pirate
+NEW_WORLD_PIRATE_LOG_KEY = "New World Pirates"
+NEW_WORLD_PIRATE_LOG_ITEM_DETAIL_TEXT_FILL_IN = "New World Pirate"
+NEW_WORLD_PIRATE_LOG_ITEM_TEXT = "{} \\(฿{}\\)"
+NEW_WORLD_PIRATE_LOG_ITEM_DETAIL_CREW_TEXT = "\n*Crew*: {}"
+NEW_WORLD_PIRATE_LOG_ITEM_DETAIL_TEXT = "*{}*\n\n*Bounty*: ฿{}\n*Location*: {}{}"
+
+# Logs - Leaderboard Rank
+LEADERBOARD_RANK_LOG_KEY = "Global Leaderboard Ranks"
+LEADERBOARD_RANK_LOG_ITEM_DETAIL_TEXT_FILL_IN = "Global Leaderboard Rank"
+LEADERBOARD_RANK_LOG_ITEM_TEXT = "Week {} of {} - {}"
+LEADERBOARD_RANK_LOG_ITEM_DETAIL_TEXT = (
+    "*Week {} of {}*\n\n*Position*: {}°\n*Rank*: {}\n*Bounty*: ฿{}"
+)
+LEADERBOARD_RANK_LOG_STATS_TEXT = (
+    "*Total appearances*: {}\n*Appearances as Pirate King*: {} \\({}%\\)\n*Appearances as"
+    " Emperor*: {} \\({}%\\)\n*Appearances as First Mate*: {} \\({}%\\)\n*Appearances as"
+    " Supernova*: {} \\({}%\\)\n*Appearances as Warlord*: {} \\({}%\\)\n*Max rank*: [{}"
+    " \\({}°\\)]({})\n*Max bounty*: [฿{} \\({}°\\)]({})"
+)
+
+# Logs - Income tax event
+INCOME_TAX_EVENT_LOG_KEY = "Tax Breakdown"
+INCOME_TAX_EVENT_LOG_ITEM_DETAIL_TEXT_FILL_IN = "Income Tax Breakdown"
+INCOME_TAX_EVENT_LOG_ITEM_TEXT = "{} \\(฿{}\\)"
+INCOME_TAX_EVENT_LOG_ITEM_DETAIL_TEXT = (
+    "*Event*: [{}]({})\n*Date*: {}\n*Income*: ฿{}\n*Net gain*: "
+    + Emoji.LOG_POSITIVE
+    + "฿{}\n*Total tax*: "
+    + Emoji.LOG_NEGATIVE
+    + "฿{} \\({}%\\){}{}\n\n\n*Breakdown*{}"
+)
+INCOME_TAX_EVENT_LOG_ITEM_DETAIL_TEXT_DEDUCTION = "\n\n*Deductions*"
+INCOME_TAX_EVENT_LOG_ITEM_DETAIL_TEXT_DEDUCTION_ITEM = "\n{}: {}%"
+INCOME_TAX_EVENT_LOG_ITEM_DETAIL_TEXT_CONTRIBUTION = "\n\n*Contributions* \\(from tax\\)"
+INCOME_TAX_EVENT_LOG_ITEM_DETAIL_TEXT_CONTRIBUTION_ITEM = "\n{}: ฿{} \\({}%\\)"
+
+INCOME_TAX_EVENT_LOG_ITEM_DETAIL_TEXT_BREAKDOWN_ITEM = (
+    "\n\nAmount: ฿{}\nGain: ฿{}\nTax: ฿{} \\({}%\\)"
+)
+
+SILENCE_ACTIVE = (
+    "A soundproof field has been activated, only those who are granted permission can speak."
+    f"\nUse {CommandName.SILENCE_END.get_formatted()} to allow everyone to speak again."
+)
+SILENCE_END = "The soundproof field has been cancelled, everyone can speak again"
+SILENCE_NOT_ACTIVE = "The soundproof field is not active"
+SPEAK = "{} has been granted permission to speak"
+
+# Devil Fruit
+DEVIL_FRUIT_CATEGORY_DESCRIPTION_ZOAN = "Zoan"
+DEVIL_FRUIT_CATEGORY_DESCRIPTION_ANCIENT_ZOAN = "Ancient Zoan"
+DEVIL_FRUIT_CATEGORY_DESCRIPTION_MYTHICAL_ZOAN = "Mythical Zoan"
+DEVIL_FRUIT_CATEGORY_DESCRIPTION_SMILE = "SMILE"
+DEVIL_FRUIT_STATUS_DESCRIPTION_NEW = "New"
+DEVIL_FRUIT_STATUS_DESCRIPTION_COMPLETED = "Completed"
+DEVIL_FRUIT_STATUS_DESCRIPTION_ENABLED = "Enabled"
+DEVIL_FRUIT_STATUS_DESCRIPTION_SCHEDULED = "Scheduled"
+DEVIL_FRUIT_STATUS_DESCRIPTION_RELEASED = "Released"
+DEVIL_FRUIT_STATUS_DESCRIPTION_COLLECTED = "Collected"
+DEVIL_FRUIT_STATUS_DESCRIPTION_EATEN = "Eaten"
+DEVIL_FRUIT_ABILITY_TEXT = "\n\n*Abilities*"
+DEVIL_FRUIT_ABILITY_TEXT_LINE = "\n{}{} \\({}{}%\\)"
+DEVIL_FRUIT_ABILITY_UNKNOWN = "\nUnknown"
+DEVIL_FRUIT_ABILITY_DEFECTIVE_SMILE = f"\n{Emoji.LOG_NEGATIVE}Defective SMILE, no ability granted"
+# Devil Fruit - Private Chat
+DEVIL_FRUIT_ITEM_TEXT = "{}"
+DEVIL_FRUIT_ITEM_TEXT_FILL_IN = "Devil Fruit"
+DEVIL_FRUIT_ITEM_DETAIL_TEXT = "*{}*\nCategory: {}{}{}{}"
+DEVIL_FRUIT_EXPIRATION_EXPLANATION = (
+    "\n>The Devil Fruit will be revoked if not eaten before the expiration"
+)
+DEVIL_FRUIT_SMILE_EXPIRATION_EXPLANATION = (
+    f"\n>SMILEs have a {Env.DEVIL_FRUIT_SMILE_DEFECTIVE_PERCENTAGE.get_int()}% probability of"
+    " being defective \\(no abilities granted\\) and their abilities last for a random duration"
+    f" that is determined once eaten, maximum {Env.DEVIL_FRUIT_SMILE_MAX_DAYS.get()} days"
+)
+DEVIL_FRUIT_ITEM_DETAIL_TEXT_EXPIRING_DATE = "\n\nExpiration: {}"
+DEVIL_FRUIT_ITEM_DETAIL_TEXT_SELL_COMMAND = (
+    "\n\nYou can sell this Devil Fruit in the Shop or in a Chat Group"
+    f"\\({CommandName.DEVIL_FRUIT_SELL.get_formatted()} <price\\> command\\)"
+)
+DEVIL_FRUIT_LIST_NO_ITEMS = "You do not have any Devil Fruits"
+DEVIL_FRUIT_NOT_OWNER = "You do not own this Devil Fruit"
+DEVIL_FRUIT_EAT_USER_ALREADY_ATE = "You have already eaten a Devil Fruit"
+DEVIL_FRUIT_EAT_CONFIRMATION_REQUEST = (
+    "Are you sure you want to eat the {}?{}\n\nYou will not be able to eat another Devil Fruit"
+    " until you discard it"
+)
+DEVIL_FRUIT_EAT_CONFIRMATION_REQUEST_ABILITIES = "\nYou will gain the following abilities:\n{}"
+DEVIL_FRUIT_EAT_CONFIRMATION_CONFIRMED = (
+    "You have eaten the {} and gained the following abilities:\n{}"
+)
+DEVIL_FRUIT_DISCARD_DEFECTIVE_SMILE = "You cannot discard a defective SMILE, wait until it expires"
+DEVIL_FRUIT_DISCARD_CONFIRMATION_REQUEST = (
+    "Are you sure you want to discard the {}?\n\nYou will lose it and can regain it by finding or"
+    " trading for it again"
+)
+DEVIL_FRUIT_DISCARD_CONFIRMATION_CONFIRMED = "You have discarded the {}"
+DEVIL_FRUIT_RELEASE_MESSAGE_INFO = (
+    "Congratulations {}, you have found a Devil Fruit!\n\nName: *{}*\nCategory: {}{}"
+    + DEVIL_FRUIT_EXPIRATION_EXPLANATION
+    + DEVIL_FRUIT_EAT_OR_SELL
+)
+
+DEVIL_FRUIT_SELL_NO_AMOUNT = (
+    "You need to specify the amount of belly you want to sell the Devil Fruit for\n\nExample:"
+    f" {CommandName.DEVIL_FRUIT_SELL.get_formatted()} 10.000.000"
+)
+DEVIL_FRUIT_SELL_NO_FRUITS = (
+    "You do not have any Devil Fruits that can be sold \\(only collected and non-eaten Devil"
+    " Fruits can be sold\\)"
+)
+DEVIL_FRUIT_SELL_SELECT_FRUIT = (
+    "Select the Devil Fruit you want to sell\n\n>When using this command in response to a"
+    " user, only they will have the ability to purchase the Devil Fruit"
+    f"\n\n{Emoji.WARNING}The Devil"
+    " Fruit will not be listed for sale in the global Shop."
+    "\nIf you want all players to view it, put it up for sale from:"
+    f"\n`{CommandName.START.get_non_formatted()}-\\>{PVT_KEY_DEVIL_FRUIT}-\\>Select"
+    f"-\\>{PVT_KEY_DEVIL_FRUIT_DETAIL_SELL}`"
+)
+DEVIL_FRUIT_SELL_NO_LONGER_OWN = "{} no longer owns this Devil Fruit"
+DEVIL_FRUIT_SELL_NO_LONGER_SELLABLE = "This Devil Fruit is no longer sellable"
+DEVIL_FRUIT_SELL_BUY = "{} has put up the following Devil Fruit for sale:\n\n{}\n\n*Price*: ฿{}{}"
+DEVIL_FRUIT_SELL_BUY_ONLY_BY_USER_ADDENDUM = "\n\n_Only {} can buy this Devil Fruit_"
+DEVIL_FRUIT_SELL_BUY_NOT_ENOUGH_BELLY = "You do not have enough belly to buy this Devil Fruit"
+DEVIL_FRUIT_SELL_BUY_CANNOT_BUY_OWN = "You cannot buy your own Devil Fruit"
+DEVIL_FRUIT_SELL_BUY_SUCCESS = (
+    "{} have bought the following Devil Fruit from {}\n\n{}\n\n*Price*: ฿{}"
+)
+DEVIL_FRUIT_DETAIL_SELL = "Please send the amount you want to sell the Devil Fruit for"
+DEVIL_FRUIT_DETAIL_SELL_AVERAGE_PRICE = ".\n\nAverage selling price: ฿{}"
+DEVIL_FRUIT_DETAIL_SELL_CONFIRMATION_REQUEST = (
+    "Are you sure you want to put up the *{}* for sale at ฿{}?\n\nYou will be notified when "
+    "someone buys it"
+)
+DEVIL_FRUIT_DETAIL_SELL_CONFIRMATION_CONFIRMED = (
+    "The Devil Fruit is now available for purchase by other users in the Shop."
+    "\n\n*Name*: {}"
+    "\n*Price*: ฿{}"
+    f"\n\nClick `{PVT_KEY_DEVIL_FRUIT_VIEW_IN_SHOP}` to review or cancel"
+)
+DEVIL_FRUIT_DETAIL_SELL_ALREADY_FOR_SALE = (
+    "This Devil Fruit is already for sale in the Shop, please remove it first"
+)
+# Devil Fruit Shop
+DEVIL_FRUIT_SHOP_ITEM_TEXT = "{}\nPrice: ฿{}"
+DEVIL_FRUIT_SHOP_ITEM_TEXT_FILL_IN = "Devil Fruit"
+DEVIL_FRUIT_SHOP_ITEM_DETAIL_TEXT = "{}\n\n*Seller*: {}\n*Price*: ฿{}"
+DEVIL_FRUIT_SHOP_LIST_NO_ITEMS = (
+    "There are currently no *Devil Fruits* for sale, please come back later.\n\nYou will see any"
+    " Devil Fruits for sale in your daily reward message, by using the"
+    f" {CommandName.DAILY_REWARD.get_formatted()} in a Chat Group."
+)
+DEVIL_FRUIT_SHOP_ITEM_DETAIL_REMOVE_CONFIRMATION = (
+    "Are you sure you want to remove this Devil Fruit from the Shop?\nYou will be able to put it"
+    " up for sale again."
+)
+DEVIL_FRUIT_SHOP_ITEM_DETAIL_REMOVE_SUCCESS = "The Devil Fruit has been removed from the Shop"
+DEVIL_FRUIT_SHOP_ITEM_DETAIL_BUY_CONFIRMATION_REVOKE = (
+    "\n\n>If you don't eat it within {}, it will be revoked"
+)
+DEVIL_FRUIT_SHOP_ITEM_DETAIL_BUY_CONFIRMATION = (
+    "Are you sure you want to buy the following Devil Fruit?\n\n*Name*: {}\n*Price*: ฿{}"
+    + DEVIL_FRUIT_SHOP_ITEM_DETAIL_BUY_CONFIRMATION_REVOKE
+)
+
+# Admin chat error messages
+NO_DEVIL_FRUIT_TO_SCHEDULE = "There are no {} Devil Fruits to schedule for release"
+
+THANKS_FOR_ADDING_TO_GROUP = "Thanks for adding me to your Group!\n" + JOIN_SUPPORT_GROUP + "\n\n"
+
+INCOME_TAX_EVENT_BOUNTY_LOAN = "Bounty Loan"
+INCOME_TAX_EVENT_DEVIL_FRUIT_SELL = "Devil Fruit Sell"
+INCOME_TAX_EVENT_PREDICTION = "Prediction"
+
+INCOME_TAX_DEDUCTION_TYPE_ADMIN = "Admin"
+INCOME_TAX_DEDUCTION_TYPE_CREW_ABILITY = "Crew Ability"
+INCOME_TAX_DEDUCTION_TYPE_DEVIL_FRUIT = "Devil Fruit"
+INCOME_TAX_DEDUCTION_TYPE_LEGENDARY_PIRATE = "Legendary Pirate"
+
+INCOME_TAX_CONTRIBUTION_TYPE_CREW_CHEST = "Crew Chest"
+
+FEATURE_BOUNTY_GIFT = "Bounty Gift"
+FEATURE_CHALLENGE = "Challenge"
+FEATURE_CREW = "Crew"
+FEATURE_DEVIL_FRUIT_APPEARANCE = "Devil Fruit Appearance"
+FEATURE_DOC_Q = "Doc Q"
+FEATURE_FIGHT = "Fight"
+FEATURE_LEADERBOARD = "Leaderboard"
+FEATURE_MESSAGE_FILTER = "Message Filter"
+FEATURE_PREDICTION = "Prediction"
+FEATURE_SILENCE = "Silence"
+FEATURE_STATUS = "Status"
+FEATURE_DEVIL_FRUIT_SELL = "Devil Fruit Sell"
+FEATURE_BOUNTY_LOAN = "Bounty Loan"
+FEATURE_PLUNDER = "Plunder"
+FEATURE_DAILY_REWARD = "Daily Reward"
+
+# Ability
+ABILITY_TYPE_DOC_Q_COOLDOWN_DURATION = "Doc Q Cooldown"
+ABILITY_TYPE_GAME_COOLDOWN_DURATION = "Challenge Cooldown"
+ABILITY_TYPE_FIGHT_COOLDOWN_DURATION = "Fight Cooldown"
+ABILITY_TYPE_FIGHT_IMMUNITY_DURATION = "Fight Immunity"
+ABILITY_TYPE_FIGHT_DEFENSE_BOOST = "Fight Defense Boost"
+ABILITY_TYPE_PREDICTION_WAGER_REFUND = "Prediction wager fund max refund"
+ABILITY_TYPE_GIFT_LOAN_TAX = "Gift and Loan Tax"
+ABILITY_TYPE_INCOME_TAX = "Income Tax"
+ABILITY_TYPE_PLUNDER_COOLDOWN_DURATION = "Plunder Cooldown"
+ABILITY_TYPE_PLUNDER_IMMUNITY_DURATION = "Plunder Immunity"
+ABILITY_TYPE_PLUNDER_SENTENCE_DURATION = "Plunder Sentence"
+ABILITY_TYPE_FIGHT_SCOUT_FEE = "Fight Scout Price"
+ABILITY_TYPE_PLUNDER_SCOUT_FEE = "Plunder Scout Price"
+ABILITY_TYPE_GAME_GLOBAL_ACCEPT_COOLDOWN_DURATION = "Global Challenge Acceptance Cooldown"
+
+PLUNDER_CANNOT_PLUNDER_USER = "You cannot plunder this user"
+PLUNDER_USER_IN_COOLDOWN = "Plunder cooldown active. You can plunder again in *{}*"
+PLUNDER_CONFIRMATION_REQUEST = (
+    "{} are you sure you want to steal from {}?\n"
+    "\nIf you're successful, you will gain ฿*{}*."
+    "\nIf you're caught, you will owe ฿*{}* and be jailed in Impel Down for *{}*!"
+    + "\n\nSuccess chance: *{}%*\nCurrent bounty: ฿*{}*\nFinal bounty if you win:"
+    " ฿*{}*\n\nIf you"
+    " lose, a loan will be created to repay the penalty"
+)
+PLUNDER_WIN = (
+    "{} have successfully robbed {}, better run away before they notice!\n\n" + GAME_WIN_STATUS
+)
+PLUNDER_LOSE = (
+    "{} have been caught trying to rob {} and they have handed you over to the Marines."
+    "\nYou will be jailed in Impel Down for *{}*, better luck next time!"
+    + IMPEL_DOWN_RESTRICTION_BAIL_GUIDE
+    + "\n\nYou now have a [฿*{}* loan]({}) towards {}"
+)
+PLUNDER_LOSE_IMMUNE = (
+    "{} have been caught trying to rob {}, but your Legendary Pirate status protected you from"
+    " any penalties."
+)
+PLUNDER_LOSE_SENTENCE_REASON = "Failed plunder against {}"
+PLUNDER_REVENGE_TOO_LATE = (
+    "You can revenge a plunder only if less than {} has passed since the attack.\n\nPassed"
+    " time: {}"
+)
+PLUNDER_REVENGE_ALREADY_REVENGED = "This plunder has already been revenged\n\n[View revenge]({})"
+
+DAILY_REWARD_ALREADY_COLLECTED = "Your next reward will be available in *{}*{}"
+DAILY_REWARD = (
+    f"{Emoji.LOG_POSITIVE}Reward: ฿*{{}}*" f"\n\n>*Breakdown*" f"\n>Base reward: ฿*{{}}*{{}}"
+)
+DAILY_REWARD_GROUP_MESSAGE = (
+    "Welcome back {}, here's your daily reward for today!\n\n{}"
+    "\n>\n>*Streak*"
+    "\n>Current streak: *{} {}*"
+    "\n>Next prize in: *{} {}*"
+    f"\n>_For every {Env.DAILY_REWARD_STREAK_DAYS.get_int()} consecutive days you claim the daily reward, you"
+    " will receive a special prize!_"
+)
+DAILY_REWARD_BONUS = "\n>\n>• {}: *+{}%* \\(฿{}\\)\n>_{}_"
+DAILY_REWARD_BONUS_LIMITATION_LOCATION_PARADISE = (
+    "\n>No bonus available due to being in Paradise while having enough Bounty for New World"
+    " \\(฿{}\\)"
+)
+DAILY_REWARD_BONUS_LIMITATION_LOCATION_NEW_WORLD = (
+    "\n>No bonus available due having more than ฿{} and being in the final New World location"
+)
+DAILY_REWARD_BONUS_LIMITATION_ARRESTED = "\n>No bonus available due to being arrested"
+DAILY_REWARD_NEXT = "\n>\n>Next reward available in *{}*||"
+DAILY_REWARD_NEXT_SPLIT = (
+    "\n>\n>Daily reward is split into {} parts, next reward available in *{}*||"
+)
+DAILY_REWARD_BONUS_DESCRIPTION_STREAK = "Streak"
+DAILY_REWARD_BONUS_DESCRIPTION_STREAK_EXPLANATION = (
+    f"+{Env.DAILY_REWARD_BONUS_BASE_STREAK.get_int()}% for every consecutive day you claim the"
+    " reward \\({}\\)"
+)
+DAILY_REWARD_BONUS_DESCRIPTION_LOCATION = "Location"
+DAILY_REWARD_BONUS_DESCRIPTION_LOCATION_EXPLANATION = (
+    f"+{Env.DAILY_REWARD_BONUS_BASE_LOCATION.get_int()}% \\* current location level \\({{}}\\)"
+)
+DAILY_REWARD_BONUS_DESCRIPTION_CREW_LEVEL = "Crew Level"
+DAILY_REWARD_BONUS_DESCRIPTION_CREW_LEVEL_EXPLANATION = (
+    f"+{Env.DAILY_REWARD_BONUS_BASE_CREW_LEVEL.get_int()}% \\* Crew level \\({{}}\\)"
+)
+DAILY_REWARD_BONUS_DESCRIPTION_CREW_MVP = "Crew MVP"
+DAILY_REWARD_BONUS_DESCRIPTION_CREW_MVP_EXPLANATION = (
+    "If your bounty is higher than your Crew's average bounty"
+)
+
+DAILY_REWARD_DEVIL_FRUIT_SHOP = "\n\n>*Devil Fruit Shop*{}||"
+DAILY_REWARD_DEVIL_FRUIT_SHOP_ITEM = "\n>•[{} - ฿{}]({})"
+DAILY_REWARD_GLOBAL_CHALLENGE = "\n\n>*Global Challenges*{}||"
+GLOBAL_CHALLENGE_ITEM = "\n>{}"
+DAILY_REWARD_PRIZE_REQUEST = (
+    "{}\nYou can either accept the offered prize or"
+    " try your luck for a better prize.\n\nOffered prize: ฿*{}*\n\nIn case you choose to try"
+    " your luck, you could obtain:\n• Random belly between ฿*{}* and"
+    f" ฿*{{}}* \\({Env.DAILY_REWARD_PRIZE_BELLY_PERCENTAGE.get_int()}% chance\\)\n• A SMILE Devil"
+    f" Fruit \\({Env.DAILY_REWARD_PRIZE_SMILE_PERCENTAGE.get_int()}% chance\\)"
+)
+DAILY_REWARD_PRIZE_REQUEST_FROM_STREAK = (
+    "Congratulations {} for keeping your streak for the past"
+    f" {Env.DAILY_REWARD_STREAK_DAYS.get_int()} days!"
+)
+DAILY_REWARD_PRIZE_REQUEST_FIRST_TIME = "Congratulations {} for collecting your first reward!"
+DAILY_REWARD_PRIZE_CONFIRM = (
+    Emoji.CONFETTI
+    + "Congratulations {}, you have obtained the following prize:\n\n{}\n\n\n_Keep your"
+    f" streak for the next {Env.DAILY_REWARD_STREAK_DAYS.get_int()} days to claim another"
+    " prize!_"
+)
+DAILY_REWARD_PRIZE_CONFIRM_BELLY = "Belly amount: ฿*{}*"
+
+AUTO_DELETE_SET = (
+    "After how many minutes should the Bot's messages be deleted from the chat?"
+    "\n\nCurrent setting: *{}*"
+)
+
+# Owner broadcast - gcast/pcast
+BROADCAST_REPLY_REQUIRED = "Please reply to the message you want to broadcast."
+BROADCAST_GROUPS_PROGRESS = f"{Emoji.HOURGLASS}Broadcasting message to all groups..."
+BROADCAST_PLAYERS_PROGRESS = f"{Emoji.HOURGLASS}Broadcasting message to all players..."
+BROADCAST_GROUPS_STATISTICS = (
+    "*Total Groups*: {}\n*Successful*: {}\n*Failed*: {}"
+)
+BROADCAST_PLAYERS_STATISTICS = (
+    "*Total Players*: {}\n*Successful*: {}\n*Failed*: {}"
+)
+BROADCAST_PIN_STATISTICS = "\n\n*Pin Statistics*\n\n*Successfully Pinned*: {}\n*Failed to Pin*: {}"
+BROADCAST_GROUPS_COMPLETED = (
+    f"{Emoji.ACCEPT}Group broadcast completed.\n\n*Broadcast Statistics*\n\n{{}}{{}}"
+)
+BROADCAST_PLAYERS_COMPLETED = (
+    f"{Emoji.ACCEPT}Player broadcast completed.\n\n*Broadcast Statistics*\n\n{{}}{{}}"
+)

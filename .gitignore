@@ -1,0 +1,19 @@
+/.idea/
+/out/
+*.env
+/environment/
+!/environment/env.example
+/one-piece-group-bot.iml
+*.pyc
+venv
+/.ignore/
+*.session
+*.session-journal
+
+# Production server
+/howtorun.sh
+/howtorerun.sh
+/howtokill.sh
+/nohup.out
+/temp
+nohup*.out

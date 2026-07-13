@@ -1,0 +1,659 @@
+import logging
+from datetime import datetime
+
+from src.tg_compat import Update, Message
+from src.tg_compat.error import TelegramError
+from src.tg_compat.ext import ContextTypes
+
+import resources.Environment as Env
+from resources import phrases
+from src.model.Crew import Crew
+from src.model.DevilFruit import DevilFruit
+from src.model.DevilFruitAbility import DevilFruitAbility
+from src.model.DevilFruitTrade import DevilFruitTrade
+from src.model.GroupChat import GroupChat
+from src.model.Leaderboard import Leaderboard
+from src.model.LeaderboardUser import LeaderboardUser
+from src.model.LegendaryPirate import LegendaryPirate
+from src.model.Warlord import Warlord
+from src.model.User import User
+from src.model.enums.AssetPath import AssetPath
+from src.model.enums.Emoji import Emoji
+from src.model.enums.Notification import (
+    DevilFruitExpiredNotification,
+    DevilFruitRevokeWarningNotification,
+    DevilFruitRevokeNotification,
+)
+from src.model.enums.ReservedKeyboardKeys import ReservedKeyboardKeys
+from src.model.enums.SavedMediaName import SavedMediaName
+from src.model.enums.Screen import Screen
+from src.model.enums.devil_fruit.DevilFruitAbilityType import (
+    DevilFruitAbilityType,
+    Sign as DevilFruitAbilityTypeSign,
+)
+from src.model.enums.devil_fruit.DevilFruitCategory import DevilFruitCategory
+from src.model.enums.devil_fruit.DevilFruitSource import DevilFruitSource
+from src.model.enums.devil_fruit.DevilFruitStatus import DevilFruitStatus
+from src.model.enums.devil_fruit.DevilFruitTradeStatus import DevilFruitTradeStatus
+from src.model.error.CustomException import DevilFruitValidationException
+from src.model.pojo.Keyboard import Keyboard
+from src.service.date_service import (
+    get_datetime_in_future_days,
+    get_random_time_between_by_cron,
+    get_random_time_between_by_hours,
+    get_datetime_in_future_hours,
+    get_remaining_time_in_minutes,
+    datetime_is_before,
+    default_datetime_format,
+)
+from src.service.message_service import log_error, escape_valid_markdown_chars, full_media_send
+from src.service.notification_service import send_notification
+from src.utils.file_utils import get_random_item_from_txt
+from src.utils.math_utils import (
+    add_percentage_to_value,
+    subtract_percentage_from_value,
+    get_random_win,
+    get_cumulative_percentage_sum,
+    format_percentage_value,
+    get_random_int,
+)
+
+
+def give_devil_fruit_to_user(
+    devil_fruit: DevilFruit,
+    receiver: User,
+    source: DevilFruitSource,
+    reason: str = None,
+    devil_fruit_trade: DevilFruitTrade = None,
+) -> None:
+    """
+    Give a devil fruit to a user
+    :param devil_fruit: The devil fruit
+    :param receiver: The receiver
+    :param source: The source
+    :param reason: The reason
+    :param devil_fruit_trade: The devil fruit trade already created
+    """
+
+    # Make sure the devil fruit is not already owned by someone
+    if devil_fruit.owner and source not in [DevilFruitSource.USER, DevilFruitSource.SHOP]:
+        owner: User = devil_fruit.owner
+        raise DevilFruitValidationException(
+            f"Devil fruit {devil_fruit.get_full_name()} is already owned by {owner.tg_user_id}"
+        )
+
+    # If source is ADMIN, a reason must be provided
+    if source is DevilFruitSource.ADMIN and not reason:
+        raise DevilFruitValidationException(
+            "A reason must be provided when giving a devil fruit to a user via ADMIN"
+        )
+
+    # Save new owner
+    devil_fruit.owner = receiver
+    devil_fruit.status = DevilFruitStatus.COLLECTED
+
+    # Add collection and expiration date if from ADMIN or BOT
+    if source in [
+        DevilFruitSource.ADMIN,
+        DevilFruitSource.BOT,
+        DevilFruitSource.DAILY_REWARD_PRIZE,
+    ]:
+        devil_fruit.expiration_date = get_datetime_in_future_days(
+            Env.DEVIL_FRUIT_EXPIRATION_DAYS.get_int()
+        )
+        devil_fruit.collection_date = datetime.now()
+
+    devil_fruit.save()
+
+    # Save trade
+    if devil_fruit_trade is None:
+        devil_fruit_trade: DevilFruitTrade = DevilFruitTrade()
+
+    devil_fruit_trade.devil_fruit = devil_fruit
+    devil_fruit_trade.receiver = receiver
+    devil_fruit_trade.source = source
+    devil_fruit_trade.reason = reason
+    devil_fruit_trade.status = DevilFruitTradeStatus.COMPLETED
+    devil_fruit_trade.date_sold = datetime.now()
+    devil_fruit_trade.save()
+
+    # Delete all pending trades
+    DevilFruitTrade.delete_pending_trades(devil_fruit)
+
+
+def get_devil_fruit_abilities(devil_fruit: DevilFruit) -> list[DevilFruitAbility]:
+    """
+    Get the devil fruit abilities
+    :param devil_fruit: The devil fruit
+    :return: The abilities
+    """
+    return DevilFruitAbility.select().where(DevilFruitAbility.devil_fruit == devil_fruit)
+
+
+def get_devil_fruit_abilities_text(
+    devil_fruit: DevilFruit, add_header: bool = True, always_show_abilities=True
+) -> str:
+    """
+    Get devil fruit abilities text
+    :param devil_fruit: The devil fruit
+    :param add_header: Whether to add the header
+    :param always_show_abilities: Whether to always show the abilities, even if the Devil Fruit has
+     never been eaten
+    :return: The text
+    """
+
+    abilities: list[DevilFruitAbility] = get_devil_fruit_abilities(devil_fruit)
+
+    abilities_text: str = phrases.DEVIL_FRUIT_ABILITY_TEXT if add_header else ""
+
+    if devil_fruit.is_defective:
+        abilities_text += phrases.DEVIL_FRUIT_ABILITY_DEFECTIVE_SMILE
+    elif always_show_abilities or devil_fruit.should_show_abilities:
+        for ability in abilities:
+            ability_type: DevilFruitAbilityType = DevilFruitAbilityType(ability.ability_type)
+
+            abilities_text += phrases.DEVIL_FRUIT_ABILITY_TEXT_LINE.format(
+                Emoji.LOG_POSITIVE,
+                ability_type.get_description(),
+                ability_type.get_sign(),
+                ability.value,
+            )
+    else:
+        abilities_text += phrases.DEVIL_FRUIT_ABILITY_UNKNOWN
+
+    return abilities_text
+
+
+def get_devil_fruits_in_circulation(category: DevilFruitCategory = None) -> list[DevilFruit]:
+    """
+    Get all devil fruits in circulation
+    :param category: The category (optional)
+    :return: The devil fruits
+    """
+
+    query = DevilFruit.select().where(
+        DevilFruit.status.in_(DevilFruitStatus.get_released_statuses())
+    )
+    if category:
+        query = query.where(DevilFruit.category == category)
+
+    return list(query)
+
+
+def should_release_devil_fruit() -> bool:
+    """
+    Checks if a Devil Fruit should be released based on the number of Devil Fruits in circulation
+    and the number of
+    active users
+    :return: Whether a Devil Fruit should be released
+    """
+
+    return True
+
+
+async def schedule_devil_fruit_release(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Schedule devil fruit release
+    :param context: The context
+    """
+
+    if not should_release_devil_fruit():
+        return
+
+    # Get a fruit to release that is ENABLED and NOT a MYTHICAL_ZOAN or SMILE
+    devil_fruit: DevilFruit = (
+        DevilFruit.select()
+        .where(
+            (DevilFruit.status == DevilFruitStatus.ENABLED) & 
+            (DevilFruit.category != DevilFruitCategory.MYTHICAL_ZOAN) &
+            (DevilFruit.category != DevilFruitCategory.SMILE)
+        )
+        .order_by(DevilFruit.id.asc())
+        .get_or_none()
+    )
+
+    # If there are no devil fruits to release, send error message to admin chat
+    if not devil_fruit:
+        ot_text = phrases.NO_DEVIL_FRUIT_TO_SCHEDULE.format("Any (non-Mythical Zoan, non-Smile)")
+        await log_error(context, ot_text)
+        logging.error(ot_text)
+        return
+
+    set_devil_fruit_release_date(devil_fruit, is_new_release=True)
+
+
+async def release_devil_fruit_to_user(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, user: User, group_chat: GroupChat
+) -> None:
+    """
+    Release a Devil Fruit to a user
+    :param update: The update
+    :param context: The context
+    :param user: The user
+    :param group_chat: The group chat
+    :return: None
+    """
+
+    from src.chat.manage_message import init
+    from src.service.bounty_service import get_next_bounty_reset_time
+
+    db = init()
+
+    if not datetime_is_before(user.devil_fruit_collection_cooldown_end_date):
+        return
+
+    with db.atomic() as transaction:
+        # Check if there are any Devil Fruits to release, lock the row
+        devil_fruit: DevilFruit = (
+            DevilFruit.select()
+            .where(DevilFruit.status == DevilFruitStatus.SCHEDULED)
+            .for_update()
+            .order_by(DevilFruit.release_date.asc())
+            .get_or_none()
+        )
+
+        if not devil_fruit:
+            return
+
+        minutes_to_release: int = get_remaining_time_in_minutes(devil_fruit.release_date)
+
+        # Probability of releasing the Devil Fruit
+        try:
+            probability: float = (1 / minutes_to_release) * 100
+        except ZeroDivisionError:
+            probability = 100
+
+        if not get_random_win(probability):
+            user.devil_fruit_collection_cooldown_end_date = get_datetime_in_future_hours(
+                Env.DEVIL_FRUIT_COLLECT_COOLDOWN_DURATION.get_int()
+            )
+            return
+
+        # Release the Devil Fruit to the user
+        text = phrases.DEVIL_FRUIT_RELEASE_MESSAGE_INFO.format(
+            user.get_markdown_mention(),
+            escape_valid_markdown_chars(devil_fruit.get_full_name()),
+            DevilFruitCategory(devil_fruit.category).get_description(),
+            get_devil_fruit_abilities_text(devil_fruit, always_show_abilities=False),
+        )
+
+        # Add deeplink button
+        inline_keyboard: list[list[Keyboard]] = [[get_manage_deeplink_keyboard(devil_fruit)]]
+
+        try:
+            # Mark the fruit as COLLECTED and set the release group BEFORE sending the message.
+            # This commits the status change to the DB so that any concurrent request querying
+            # for SCHEDULED fruits won't find this one during the async await below,
+            # preventing the spawn message from being sent twice.
+            devil_fruit.release_group_chat = group_chat
+            give_devil_fruit_to_user(devil_fruit, user, DevilFruitSource.BOT)
+            user.devil_fruit_collection_cooldown_end_date = get_next_bounty_reset_time()
+
+            # Send release message
+            message: Message = await full_media_send(
+                context,
+                saved_media_name=SavedMediaName.DEVIL_FRUIT_NEW,
+                caption=text,
+                keyboard=inline_keyboard,
+                update=update,
+                new_message=True,
+                quote_if_group=False,
+            )
+
+            # Save the message ID now that we have it
+            devil_fruit.release_message_id = message.message_id
+            devil_fruit.save()
+        except (TelegramError, DevilFruitValidationException) as e:
+            transaction.rollback()
+            logging.error(f"Error giving devil fruit to user {user.tg_user_id}: {e}")
+
+
+def force_schedule_devil_fruit(devil_fruit: DevilFruit) -> None:
+    """
+    Force schedule a devil fruit for release
+    :param devil_fruit: The devil fruit
+    :return: None
+    """
+
+    if devil_fruit.get_status() is not DevilFruitStatus.ENABLED:
+        raise DevilFruitValidationException(
+            f"Devil fruit {devil_fruit.get_full_name()} must be in ENABLED status to force schedule"
+        )
+
+    if devil_fruit.get_category() in [DevilFruitCategory.MYTHICAL_ZOAN, DevilFruitCategory.SMILE]:
+        raise DevilFruitValidationException(
+            f"Devil fruit {devil_fruit.get_full_name()} cannot be force scheduled"
+        )
+
+    set_devil_fruit_release_date(devil_fruit, is_new_release=True)
+
+
+def set_devil_fruit_release_date(devil_fruit: DevilFruit, is_new_release: bool = False) -> None:
+    """
+    Set the release date of a devil fruit
+    :param devil_fruit: The devil fruit
+    :param is_new_release: Whether this is a new release
+    :return: None
+    """
+
+    devil_fruit.owner = None
+
+    # Delete all associated pending trades
+    DevilFruitTrade.delete_pending_trades(devil_fruit=devil_fruit)
+
+    # Never re-release SMILEs
+    if devil_fruit.get_category() is DevilFruitCategory.SMILE:
+        devil_fruit.status = DevilFruitStatus.COMPLETED
+        devil_fruit.save()
+        return
+
+    if not should_release_devil_fruit():
+        devil_fruit.status = DevilFruitStatus.ENABLED
+        devil_fruit.save()
+        return
+
+    # If it's a new release, set the release date to random time between now and next release
+    if is_new_release:
+        release_date = get_random_time_between_by_cron(
+            Env.CRON_SCHEDULE_DEVIL_FRUIT_ZOAN_RELEASE.get()
+        )
+    else:  # If it's a re-release, set the release date to random time between now and next n hours
+        release_date = get_random_time_between_by_hours(Env.DEVIL_FRUIT_RESPAWN_HOURS.get_int())
+
+    devil_fruit.eaten_date = None
+    devil_fruit.expiration_date = None
+    devil_fruit.collection_date = None
+    devil_fruit.release_date = release_date
+    devil_fruit.release_message_id = None
+    devil_fruit.status = DevilFruitStatus.SCHEDULED
+    devil_fruit.save()
+
+
+async def respawn_devil_fruit(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Respawn Devil Fruit
+    :param context: The context
+    :return: None
+    """
+
+    # Get all Devil Fruits that have expired and have not been eaten yet or expired SMILEs
+    devil_fruits: list[DevilFruit] = DevilFruit.select().where(
+        (
+            (DevilFruit.status == DevilFruitStatus.COLLECTED)
+            | (
+                (DevilFruit.status == DevilFruitStatus.EATEN)
+                & (DevilFruit.category == DevilFruitCategory.SMILE)
+            )
+        )
+        & (DevilFruit.expiration_date <= datetime.now())
+    )
+    for devil_fruit in devil_fruits:
+        # Release
+        owner: User = devil_fruit.owner
+        set_devil_fruit_release_date(devil_fruit)
+
+        # Send notification to owner
+        notification = DevilFruitExpiredNotification(devil_fruit)
+        await send_notification(context, owner, notification)
+
+
+def get_ability_value(
+    user: User, ability_type: DevilFruitAbilityType, value: float, add_to_value: bool = False
+) -> float:
+    """
+    Given a value, gets the updated value if user has eaten a Devil Fruit that modifies it
+    :param user: The user
+    :param ability_type: The ability type
+    :param value: The value
+    :param add_to_value: Whether to add to the value
+    :return: The value
+    """
+
+    abilities: list[DevilFruitAbility] = []
+
+    # Get ability from a Devil Fruit eaten by user that has the ability
+    devil_fruit_ability: DevilFruitAbility = DevilFruitAbility.get_user_ability(user, ability_type)
+    if devil_fruit_ability is not None:
+        abilities.append(devil_fruit_ability)
+
+    # Get ability from user's crew abilities
+    if user.is_crew_member():
+        crew: Crew = user.crew
+        abilities.extend(crew.get_active_ability(ability_type))
+
+    if len(abilities) == 0:
+        return value
+
+    ability_type_sign: DevilFruitAbilityTypeSign = ability_type.get_sign()
+    ability_value = format_percentage_value(
+        get_cumulative_percentage_sum([ability.value for ability in abilities])
+    )
+
+    # Positive sign
+    if ability_type_sign == DevilFruitAbilityTypeSign.POSITIVE:
+        if add_to_value:
+            return value + ability_value
+        else:
+            return add_percentage_to_value(value, ability_value)
+
+    # Negative sign
+    if add_to_value:
+        return value - ability_value
+
+    return subtract_percentage_from_value(value, ability_value)
+
+
+def get_ability_adjusted_datetime(
+    user: User, ability_type: DevilFruitAbilityType, hours: int
+) -> int:
+    """
+    Given a value, get the updated datetime if user has eaten a Devil Fruit that modifies it
+    :param user: The user
+    :param ability_type: The ability type
+    :param hours: The hours
+    :return: The value
+    """
+
+    new_hours: float = get_ability_value(user, ability_type, hours)
+    return get_datetime_in_future_hours(new_hours)
+
+
+def user_has_eaten_devil_fruit(user: User) -> bool:
+    """
+    Check if user has eaten a Devil Fruit
+    :param user: The user
+    :return: Whether user has eaten a Devil Fruit
+    """
+
+    return (
+        DevilFruit.select()
+        .where((DevilFruit.owner == user) & (DevilFruit.status == DevilFruitStatus.EATEN))
+        .exists()
+    )
+
+
+async def warn_inactive_users_with_eaten_devil_fruit(
+    context: ContextTypes.DEFAULT_TYPE, users: list[User] = None
+) -> None:
+    """
+    Warn inactive users with eaten Devil Fruits
+
+    :param context: The context object
+    :param users: The users to warn. If provided, it will only warn these users, else it will warn
+    all inactive users
+    :return: None
+    """
+
+    inactive_users_devil_fruits = get_inactive_users_with_eaten_devil_fruits(
+        Env.DEVIL_FRUIT_MAINTAIN_MIN_LATEST_LEADERBOARD_APPEARANCE.get_int() - 1
+    )
+
+    for devil_fruit in inactive_users_devil_fruits:
+        if users is None or (users is not None and devil_fruit.owner in users):
+            await send_notification(
+                context,
+                devil_fruit.owner,
+                DevilFruitRevokeWarningNotification(devil_fruit=devil_fruit),
+            )
+
+
+def get_inactive_users_with_eaten_devil_fruits(
+    latest_leaderboard_appearance: int,
+) -> list[DevilFruit]:
+    """
+    Find Devil Fruits eaten by users that have not appeared in the latest N leaderboards
+
+    :param latest_leaderboard_appearance: The latest leaderboard appearance
+    :return: The inactive captains
+    """
+
+    latest_leaderboards: list[Leaderboard] = Leaderboard.get_latest_n(
+        n=latest_leaderboard_appearance
+    )
+
+    # Eaten Devil Fruits with owners that have appeared in the latest N leaderboards
+    query: list[DevilFruit] = (
+        DevilFruit.select()
+        .distinct()
+        .join(User)
+        .join(LeaderboardUser)
+        .join(Leaderboard)
+        .where(
+            (DevilFruit.status == DevilFruitStatus.EATEN)
+            & (Leaderboard.id.in_(latest_leaderboards))
+        )
+        .execute()
+    )
+    eaten_active_devil_fruits: list[DevilFruit] = list(query)
+
+    # Inactive Devil Fruits
+    # Have to first get inactive ones else, by using "not in", it will return records for previous
+    # leaderboards too since the user might have been in a leaderboard before N, so it will not be
+    # in the latest N leaderboards
+    # Exclude admins, legendary pirates and warlords (immune to this revocation) and reductions
+    # from global leaderboard requirement
+    inactive_devil_fruits: list[DevilFruit] = (
+        DevilFruit.select()
+        .distinct()
+        .join(User)
+        .where(
+            (DevilFruit.status == DevilFruitStatus.EATEN)
+            & (User.is_admin == False)
+            & (User.is_exempt_from_global_leaderboard_requirements == False)
+            & (User.id.not_in(LegendaryPirate.get_active_user_ids()))
+            & (User.id.not_in(Warlord.get_active_user_ids()))
+            & (DevilFruit.id.not_in([df.id for df in eaten_active_devil_fruits]))
+        )
+        .execute()
+    )
+
+    return list(inactive_devil_fruits)
+
+
+async def revoke_devil_fruit_from_inactive_users(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Revoke Devil Fruits from inactive users
+
+    :param context: The context object
+    :return: None
+    """
+
+    inactive_users_devil_fruits = get_inactive_users_with_eaten_devil_fruits(
+        Env.DEVIL_FRUIT_MAINTAIN_MIN_LATEST_LEADERBOARD_APPEARANCE.get_int()
+    )
+
+    for devil_fruit in inactive_users_devil_fruits:
+        owner: User = devil_fruit.owner
+        # Revoke
+        set_devil_fruit_release_date(devil_fruit)
+
+        # Send notification to owner
+        await send_notification(
+            context, owner, DevilFruitRevokeNotification(devil_fruit=devil_fruit)
+        )
+
+
+def create_smile() -> DevilFruit:
+    """
+    Generate a SMILE
+    :return: The SMILE
+    """
+
+    devil_fruit: DevilFruit = DevilFruit()
+    devil_fruit.category = DevilFruitCategory.SMILE
+    devil_fruit.name = get_random_item_from_txt(AssetPath.ANIMALS)
+    devil_fruit.should_show_abilities = True  # SMILEs always have abilities visible
+    devil_fruit.save()
+
+    # Add ability
+    ability: DevilFruitAbility = DevilFruitAbility()
+    ability.devil_fruit = devil_fruit
+    ability.ability_type = DevilFruitAbilityType.get_random_ability()
+    ability.value = get_random_int(1, 100)
+    ability.save()
+
+    return devil_fruit
+
+
+def get_recap_text(devil_fruit: DevilFruit, add_sell_command: bool = False) -> str:
+    """
+    Get the recap text
+    :param devil_fruit: The devil fruit
+    :param add_sell_command: Whether to add the sell command
+    :return: The text
+    """
+
+    expiring_date_text = ""
+    sell_command_text = ""
+    has_standard_expiring_date_explanation = False
+
+    if (
+        devil_fruit.get_status() is DevilFruitStatus.COLLECTED
+        or devil_fruit.get_category() is DevilFruitCategory.SMILE
+    ):
+        if devil_fruit.expiration_date is not None:  # Should always be the case
+            expiring_date_text = phrases.DEVIL_FRUIT_ITEM_DETAIL_TEXT_EXPIRING_DATE.format(
+                default_datetime_format(devil_fruit.expiration_date, add_remaining_time=True)
+            )
+
+            if devil_fruit.get_status() is DevilFruitStatus.COLLECTED:
+                expiring_date_text += phrases.DEVIL_FRUIT_EXPIRATION_EXPLANATION
+                has_standard_expiring_date_explanation = True
+
+        else:
+            logging.error(
+                "Devil Fruit %s in collected status has no expiration date", devil_fruit.id
+            )
+
+    # SMILE, add info that the ability is temporary
+    if devil_fruit.get_category() is DevilFruitCategory.SMILE:
+        if has_standard_expiring_date_explanation:
+            expiring_date_text += "\n"
+        expiring_date_text += phrases.DEVIL_FRUIT_SMILE_EXPIRATION_EXPLANATION
+
+    if add_sell_command and devil_fruit.get_status() is not DevilFruitStatus.EATEN:
+        sell_command_text = phrases.DEVIL_FRUIT_ITEM_DETAIL_TEXT_SELL_COMMAND
+
+    abilities_text = get_devil_fruit_abilities_text(devil_fruit, always_show_abilities=False)
+    return phrases.DEVIL_FRUIT_ITEM_DETAIL_TEXT.format(
+        devil_fruit.get_full_name(),
+        DevilFruitCategory(devil_fruit.category).get_description(),
+        abilities_text,
+        expiring_date_text,
+        sell_command_text,
+    )
+
+
+def get_manage_deeplink_keyboard(devil_fruit: DevilFruit) -> Keyboard:
+    """
+    Get the manage deeplink keyboard
+    :param devil_fruit: The devil fruit
+    :return: The keyboard
+    """
+
+    return Keyboard(
+        phrases.KEY_MANAGE_DEVIL_FRUIT,
+        screen=Screen.PVT_DEVIL_FRUIT_DETAIL,
+        info={ReservedKeyboardKeys.DEFAULT_PRIMARY_KEY: devil_fruit.id},
+        is_deeplink=True,
+    )
