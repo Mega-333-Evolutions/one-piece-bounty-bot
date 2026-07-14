@@ -6,6 +6,10 @@ consumed by src/tg_compat/_bot.py, which translates them into Telethon's
 ``Button`` / ``send_file`` / inline-query-result-builder calls.
 """
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class InlineKeyboardButton:
     """Mirrors telegram.InlineKeyboardButton."""
@@ -24,10 +28,10 @@ class InlineKeyboardButton:
         self.url = url
         self.switch_inline_query = switch_inline_query
         self.switch_inline_query_current_chat = switch_inline_query_current_chat
-        # Anything else (e.g. the api_kwargs={"style": ...} cosmetic tagging
-        # used by src/utils/button_style_utils.py) is accepted and ignored:
-        # Telegram's Bot API has no per-button colour/style field to send it
-        # to in the first place, so this was already inert.
+        # api_kwargs={"style": ...} from src/utils/button_style_utils.py -
+        # Bot API 9.4 (Feb 2026) added a real `style` field for colored
+        # buttons (bg_primary/bg_danger/bg_success). See
+        # convert_markup_to_buttons() below for how this gets applied.
         self.extra = kwargs
 
 
@@ -95,6 +99,43 @@ class InlineQueryResultArticle(InlineQueryResult):
         self.thumbnail_url = thumbnail_url
 
 
+def _with_style(tl_button, style: str):
+    """
+    Attach a Bot API 9.4 button color (bg_primary/bg_danger/bg_success) to an
+    already-constructed Telethon button object.
+
+    Telethon's Button.* helpers may not (yet) expose `style` as a keyword, so
+    this reconstructs the same TL object with the same fields plus `style`
+    rather than relying on a helper parameter that might not exist. If the
+    installed Telethon version's generated schema doesn't have this field
+    yet, construction raises TypeError and the original, unstyled button is
+    used instead - colors are a visual nicety, never worth failing a send
+    over.
+    """
+    if not style:
+        return tl_button
+
+    flag_by_style = {"success": "bg_success", "danger": "bg_danger", "primary": "bg_primary"}
+    flag = flag_by_style.get(style)
+    if flag is None:
+        return tl_button
+
+    try:
+        from telethon.tl.types import KeyboardButtonStyle
+
+        style_obj = KeyboardButtonStyle(**{flag: True})
+        field_names = [k for k in vars(tl_button).keys() if not k.startswith("_")]
+        kwargs = {k: getattr(tl_button, k) for k in field_names}
+        kwargs["style"] = style_obj
+        return type(tl_button)(**kwargs)
+    except Exception:
+        logger.warning(
+            f"tg_compat: this Telethon version doesn't support colored buttons "
+            f"(Bot API 9.4) yet; sending {tl_button!r} without a style"
+        )
+        return tl_button
+
+
 def convert_markup_to_buttons(reply_markup: InlineKeyboardMarkup):
     """Converts a compat InlineKeyboardMarkup into Telethon's `Button` rows."""
     if reply_markup is None:
@@ -106,17 +147,17 @@ def convert_markup_to_buttons(reply_markup: InlineKeyboardMarkup):
         new_row = []
         for btn in row:
             if btn.url:
-                new_row.append(Button.url(btn.text, btn.url))
+                tl_button = Button.url(btn.text, btn.url)
             elif btn.switch_inline_query is not None:
-                new_row.append(Button.switch_inline(btn.text, btn.switch_inline_query))
+                tl_button = Button.switch_inline(btn.text, btn.switch_inline_query)
             elif btn.switch_inline_query_current_chat is not None:
-                new_row.append(
-                    Button.switch_inline(btn.text, btn.switch_inline_query_current_chat, same_peer=True)
-                )
+                tl_button = Button.switch_inline(btn.text, btn.switch_inline_query_current_chat, same_peer=True)
             else:
                 data = btn.callback_data
                 if isinstance(data, str):
                     data = data.encode("utf-8")
-                new_row.append(Button.inline(btn.text, data=data))
+                tl_button = Button.inline(btn.text, data=data)
+            style = (btn.extra or {}).get("style")
+            new_row.append(_with_style(tl_button, style))
         rows.append(new_row)
     return rows

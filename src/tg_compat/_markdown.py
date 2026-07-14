@@ -41,6 +41,7 @@ from telethon.tl.types import (
     MessageEntityPre,
     MessageEntityTextUrl,
     MessageEntityMentionName,
+    MessageEntityBlockquote,
 )
 
 
@@ -124,6 +125,36 @@ def parse_markdown_v2(source):
         if ch == "\\" and i + 1 < n:
             out.append(source[i + 1])
             i += 2
+            continue
+
+        # Blockquote: consecutive lines starting with '>' at the start of a line
+        if ch == ">" and (i == 0 or source[i - 1] == "\n"):
+            quote_lines = []
+            j = i
+            while j < n and source[j] == ">":
+                j += 1
+                line_end = source.find("\n", j)
+                if line_end == -1:
+                    quote_lines.append(source[j:])
+                    j = n
+                    break
+                quote_lines.append(source[j:line_end])
+                if line_end + 1 < n and source[line_end + 1] == ">":
+                    j = line_end + 1
+                else:
+                    j = line_end
+                    break
+            inner_source = "\n".join(quote_lines)
+            start_off = cur_offset()
+            inner_plain, inner_entities = parse_markdown_v2(inner_source)
+            for c in inner_plain:
+                out.append(c)
+            length = cur_offset() - start_off
+            for e in inner_entities:
+                e.offset += start_off
+                entities.append(e)
+            entities.append(MessageEntityBlockquote(offset=start_off, length=length))
+            i = j
             continue
 
         # Pre-formatted block ```lang\n...``` or ```...```

@@ -152,7 +152,8 @@ backslashes visible to users.
 
 `src/tg_compat/_markdown.py` is a from-scratch MarkdownV2 parser that
 converts Bot API's exact dialect (bold, italic, underline, strikethrough,
-spoiler, code, pre blocks, links, `tg://user?id=` mentions, with proper
+spoiler, code, pre blocks, links, `tg://user?id=` mentions, and blockquotes,
+with proper
 UTF-16 offset counting for emoji) directly into Telethon's raw entity
 objects, bypassing Telethon's own parser entirely. This was tested against
 the specific formatting patterns actually used in `resources/phrases_en.py`
@@ -167,6 +168,65 @@ should succeed for essentially every real case (anyone the bot is mentioning
 has necessarily messaged it before, so Telethon's session cache has them) -
 if resolution ever fails, the mention degrades gracefully to plain text
 instead of crashing the send.
+
+## Bugs found after the first real deployment (now fixed)
+
+The first version of this conversion was written and validated entirely
+statically (no Telethon install, no live bot) - see "How this was verified"
+above for why. After deploying it against a real bot token, two real bugs
+turned up, both now fixed and both worth understanding since they were
+genuine gaps in my original reasoning, not hypothetical edge cases:
+
+- **Images/videos/animations were sending as generic "unnamed" file
+  attachments instead of rendering inline.** Root cause: Telethon decides
+  whether an upload is a photo or a generic document by looking at the
+  *file name extension* (`telethon.utils.is_image()` just checks the
+  extension, it doesn't inspect the bytes) - and the freshly-uploaded-bytes
+  case in `Bot._resolve_media_input()` was wrapping raw bytes in a bare
+  `io.BytesIO` with no `.name` set at all. Fixed by giving that `BytesIO` a
+  synthetic name with the right extension (`.jpg` for photos, `.mp4` for
+  video/animation) before handing it to `send_file()`.
+- **`/status` (and anything else that downloads a replied-to user's profile
+  photo for the bounty poster) crashed with `PIL.UnidentifiedImageError`.**
+  Root cause: handing a bare `Photo` object (as returned by
+  `get_profile_photos()`) directly to `download_media()` is a
+  [known Telethon rough edge](https://github.com/LonamiWebs/Telethon/issues/1519) -
+  it can end up downloading a tiny/placeholder thumbnail representation
+  instead of the full photo, which isn't a file PIL can open. Fixed by
+  switching to `client.download_profile_photo(user, file=path,
+  download_big=True)` - Telethon's purpose-built method for exactly this -
+  instead of the more manual `get_profile_photos()` + `download_media()`
+  chain. `TelegramUser.get_profile_photos()` still returns the same
+  `UserProfilePhotos` shape `user_service.py` expects; only the actual
+  download step underneath changed.
+
+If you deploy this and hit something that looks similarly "off" (a specific
+message not rendering right, a specific action erroring), the most useful
+thing to send back is the exact command/action plus the traceback or a
+screenshot - that's what made both of these findable.
+
+## Correction: button colors are real, and now implemented
+
+My first pass of this migration said the `style` field
+`src/utils/button_style_utils.py` attaches to buttons (`api_kwargs={"style":
+...}`) had no real effect, on the assumption that Bot API has no per-button
+color field. That assumption was wrong, and post-dates my training data
+either way: **Bot API 9.4 (February 9, 2026) added a real `style` field to
+`InlineKeyboardButton`**, letting bots color buttons red/green/blue
+(danger/success/primary) - which is exactly what `api_kwargs={"style":
+...}` was already doing under python-telegram-bot (PTB hadn't added a typed
+parameter for it yet, so `api_kwargs` - PTB's escape hatch for
+not-yet-wrapped Bot API fields - was the correct way to reach it even in
+the original bot).
+
+This is now properly implemented in `src/tg_compat/_keyboard.py`: buttons
+are sent using the raw MTProto `KeyboardButtonStyle` type
+(`bg_success`/`bg_danger`/`bg_primary`) Telegram introduced alongside the
+Bot API field. If your installed Telethon version's bundled schema doesn't
+have this field yet, it's caught and the button is sent without a color
+rather than failing the whole send - check your logs for a
+`tg_compat: this Telethon version doesn't support colored buttons` warning
+if colors don't show up; that means it's worth updating Telethon.
 
 ## Known limitations / things worth knowing
 
@@ -210,13 +270,6 @@ of how likely they are to matter in practice:
 - **Chat admin/membership checks** (`is_chat_admin`, `user_is_chat_member`)
   use Telethon's `get_permissions()`. This is Telethon's documented,
   standard way to do this, but wasn't testable against a live chat here.
-- **Button "style" (`api_kwargs={"style": ...}`)** in
-  `src/utils/button_style_utils.py` was passed to Bot API as an
-  undocumented extra field with no confirmed visual effect (Bot API has no
-  public per-button color/style field). It's preserved as an attribute on
-  the compat `InlineKeyboardButton` object but isn't sent anywhere, since
-  there's nowhere to put it in Telethon's button model either - this should
-  be behaviorally identical to before.
 
 None of these affect the core game loop (sending/editing messages and
 keyboards, callback queries, commands, group admin actions, scheduled jobs) -

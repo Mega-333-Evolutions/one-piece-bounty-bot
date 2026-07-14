@@ -74,11 +74,19 @@ class Bot:
                 resolved.append(e)
         return plain, (resolved or None)
 
-    def _resolve_media_input(self, media_value):
+    def _resolve_media_input(self, media_value, default_extension: str = None):
         """bytes -> upload fresh; cached "tgcref1:" reference -> reuse without
         re-uploading; anything else (path/URL) -> pass through as-is."""
         if isinstance(media_value, (bytes, bytearray)):
-            return BytesIO(media_value)
+            bio = BytesIO(media_value)
+            # Telethon decides photo-vs-document (and picks a mime type) from
+            # the file's *name extension*, not its content - see
+            # telethon.utils.is_image(), which literally just checks the
+            # extension. A bare BytesIO has no .name, so without this it
+            # silently uploads as a generic "unnamed" document instead of a
+            # photo/video/animation.
+            bio.name = f"upload{default_extension or ''}"
+            return bio
         if is_media_ref(media_value):
             return _reconstruct_media_reference(decode_media_ref(media_value))
         return media_value
@@ -166,7 +174,9 @@ class Bot:
 
     async def edit_message_media(self, chat_id=None, message_id=None, media=None, reply_markup=None, **_ignored) -> Message:
         plain, entities = await self._prepare_text(media.caption, media.parse_mode) if media else (None, None)
-        file_input = self._resolve_media_input(media.media) if media else None
+        ext_by_type = {"photo": ".jpg", "video": ".mp4", "animation": ".mp4"}
+        default_extension = ext_by_type.get(getattr(media, "type", None), ".jpg")
+        file_input = self._resolve_media_input(media.media, default_extension=default_extension) if media else None
         tl_message = await translate_errors(
             self._client.edit_message(
                 chat_id,
@@ -248,7 +258,7 @@ class Bot:
         tl_message = await translate_errors(
             self._client.send_file(
                 chat_id,
-                file=self._resolve_media_input(photo),
+                file=self._resolve_media_input(photo, default_extension=".jpg"),
                 caption=plain,
                 formatting_entities=entities,
                 parse_mode=None,
@@ -278,7 +288,7 @@ class Bot:
         tl_message = await translate_errors(
             self._client.send_file(
                 chat_id,
-                file=self._resolve_media_input(video),
+                file=self._resolve_media_input(video, default_extension=".mp4"),
                 caption=plain,
                 formatting_entities=entities,
                 parse_mode=None,
@@ -310,7 +320,7 @@ class Bot:
         tl_message = await translate_errors(
             self._client.send_file(
                 chat_id,
-                file=self._resolve_media_input(animation),
+                file=self._resolve_media_input(animation, default_extension=".mp4"),
                 caption=plain,
                 formatting_entities=entities,
                 parse_mode=None,

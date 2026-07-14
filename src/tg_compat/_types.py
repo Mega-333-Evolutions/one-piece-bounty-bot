@@ -83,10 +83,13 @@ class TelegramUser:
 
         photos = await translate_errors(self._client.get_profile_photos(self._entity or self.id, limit=limit))
         # PTB shapes this as a list of "photo groups" (one per profile photo,
-        # each itself a list of resolutions). Telethon already gives us one
-        # Photo object per profile picture (it downloads the best available
-        # resolution automatically), so each group has exactly one entry.
-        groups = [[PhotoSize(p, self._client)] for p in photos]
+        # each itself a list of resolutions); Telethon gives us one Photo per
+        # profile picture, so each group has exactly one entry. The owner
+        # entity is threaded through to PhotoSize/File so the eventual
+        # download goes through download_profile_photo() rather than handing
+        # the bare Photo object to download_media() - see PhotoSize.get_file.
+        owner = self._entity or self.id
+        groups = [[PhotoSize(p, self._client, owner_entity=owner)] for p in photos]
         return UserProfilePhotos(total_count=len(photos), photos=groups)
 
     def __repr__(self):
@@ -132,10 +135,11 @@ def decode_media_ref(value: str) -> dict:
 class PhotoSize:
     """Mirrors telegram.PhotoSize. Wraps a Telethon Photo object."""
 
-    def __init__(self, tl_photo, client=None, fallback_path: str = None):
+    def __init__(self, tl_photo, client=None, fallback_path: str = None, owner_entity=None):
         self._tl_photo = tl_photo
         self._client = client
         self._fallback_path = fallback_path
+        self._owner_entity = owner_entity
         self.file_size = getattr(tl_photo, "size", None)
 
     @property
@@ -143,7 +147,7 @@ class PhotoSize:
         return _encode_media_ref("photo", self._tl_photo, self._fallback_path)
 
     async def get_file(self) -> "File":
-        return File(self._tl_photo, self._client)
+        return File(self._tl_photo, self._client, owner_entity=self._owner_entity)
 
     def __len__(self):
         # Defensive: some call sites do `len(message.video)`-style truthiness
@@ -194,12 +198,30 @@ class Animation:
 class File:
     """Mirrors telegram.File."""
 
-    def __init__(self, tl_media, client=None):
+    def __init__(self, tl_media, client=None, owner_entity=None):
         self._tl_media = tl_media
         self._client = client
+        # Set only when this File wraps a *profile* photo - see
+        # download_to_drive() below for why that changes how we download it.
+        self._owner_entity = owner_entity
 
     async def download_to_drive(self, custom_path=None):
         from ._errors import translate_errors
+
+        if self._owner_entity is not None:
+            # Handing a bare Photo object (as returned by get_profile_photos)
+            # straight to download_media() is a known Telethon footgun: it
+            # can silently download a tiny/placeholder thumbnail instead of
+            # the full-size photo instead of raising an error (see
+            # https://github.com/LonamiWebs/Telethon/issues/1519), which is
+            # what was causing "cannot identify image file" downstream in
+            # bounty poster generation. download_profile_photo() is the
+            # purpose-built, confirmed-working method for this instead.
+            return await translate_errors(
+                self._client.download_profile_photo(
+                    self._owner_entity, file=custom_path, download_big=True
+                )
+            )
 
         return await translate_errors(self._client.download_media(self._tl_media, file=custom_path))
 
