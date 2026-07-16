@@ -103,7 +103,7 @@ class Bot:
         text,
         reply_markup=None,
         disable_web_page_preview=None,
-        parse_mode=None,
+        parse_mode="MarkdownV2",
         disable_notification=None,
         reply_to_message_id=None,
         allow_sending_without_reply=None,
@@ -132,7 +132,7 @@ class Bot:
         chat_id=None,
         message_id=None,
         reply_markup=None,
-        parse_mode=None,
+        parse_mode="MarkdownV2",
         disable_web_page_preview=None,
         **_ignored,
     ) -> Message:
@@ -157,7 +157,7 @@ class Bot:
         return await Message.from_telethon(tl_message, self._client, self, fetch_reply=False)
 
     async def edit_message_caption(
-        self, chat_id=None, message_id=None, caption=None, parse_mode=None, reply_markup=None, **_ignored
+        self, chat_id=None, message_id=None, caption=None, parse_mode="MarkdownV2", reply_markup=None, **_ignored
     ) -> Message:
         plain, entities = await self._prepare_text(caption, parse_mode)
         tl_message = await translate_errors(
@@ -246,7 +246,7 @@ class Bot:
         photo,
         caption=None,
         reply_markup=None,
-        parse_mode=None,
+        parse_mode="MarkdownV2",
         disable_notification=None,
         reply_to_message_id=None,
         allow_sending_without_reply=None,
@@ -276,7 +276,7 @@ class Bot:
         video,
         caption=None,
         reply_markup=None,
-        parse_mode=None,
+        parse_mode="MarkdownV2",
         disable_notification=None,
         reply_to_message_id=None,
         allow_sending_without_reply=None,
@@ -307,7 +307,7 @@ class Bot:
         animation,
         caption=None,
         reply_markup=None,
-        parse_mode=None,
+        parse_mode="MarkdownV2",
         disable_notification=None,
         reply_to_message_id=None,
         allow_sending_without_reply=None,

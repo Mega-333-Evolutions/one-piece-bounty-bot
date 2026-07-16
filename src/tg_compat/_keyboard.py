@@ -45,7 +45,7 @@ class InlineKeyboardMarkup:
 class InputMedia:
     """Mirrors telegram.InputMedia (base)."""
 
-    def __init__(self, media, caption: str = None, parse_mode: str = None):
+    def __init__(self, media, caption: str = None, parse_mode: str = "MarkdownV2"):
         self.media = media
         self.caption = caption
         self.parse_mode = parse_mode
@@ -157,7 +157,13 @@ def convert_markup_to_buttons(reply_markup: InlineKeyboardMarkup):
                 if isinstance(data, str):
                     data = data.encode("utf-8")
                 tl_button = Button.inline(btn.text, data=data)
-            style = (btn.extra or {}).get("style")
+            extra = btn.extra or {}
+            # build_inline_keyboard_button() constructs the button as
+            # InlineKeyboardButton(text, api_kwargs={"style": ...}) - mirroring
+            # real PTB's api_kwargs mechanism, which nests under "api_kwargs"
+            # rather than being a top-level kwarg. Check there first, and
+            # fall back to a direct style= for robustness.
+            style = extra.get("api_kwargs", {}).get("style") or extra.get("style")
             new_row.append(_with_style(tl_button, style))
         rows.append(new_row)
     return rows

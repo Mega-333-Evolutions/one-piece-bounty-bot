@@ -87,6 +87,20 @@ class Application:
         self._user_data_store = {}
         self.bot = Bot(self._client)
         self.job_queue = JobQueue(self, timezone=timezone)
+        # Python's event loop only holds a *weak* reference to tasks created
+        # via asyncio.ensure_future/create_task - anything not referenced
+        # elsewhere can be garbage collected mid-execution, before it's done
+        # (see https://docs.python.org/3/library/asyncio-task.html#asyncio.create_task,
+        # worse from Python 3.12 on). Every call site in this codebase does
+        # `context.application.create_task(...)` and discards the return
+        # value, which is exactly the pattern that's vulnerable - especially
+        # for anything that awaits a long asyncio.sleep() (game hint loops
+        # sleeping 30-60s between messages), since a longer suspension means
+        # a much bigger window for this to happen. This set holds a strong
+        # reference to every task until it finishes, matching the standard
+        # asyncio idiom (and what PTB's own Application.create_task does
+        # internally).
+        self._background_tasks = set()
 
         self._regular_handler = None
         self._callback_handler = None
@@ -106,7 +120,10 @@ class Application:
             except Exception:
                 logger.exception(f"Unhandled exception in background task {name or '<unnamed>'}")
 
-        return asyncio.ensure_future(_wrapped())
+        task = asyncio.ensure_future(_wrapped())
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+        return task
 
     # -- wiring ---------------------------------------------------------
 

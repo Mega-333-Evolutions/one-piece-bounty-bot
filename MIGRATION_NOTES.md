@@ -167,15 +167,27 @@ a bare user id. `Bot._prepare_text()` resolves this via
 should succeed for essentially every real case (anyone the bot is mentioning
 has necessarily messaged it before, so Telethon's session cache has them) -
 if resolution ever fails, the mention degrades gracefully to plain text
-instead of crashing the send.
+instead of crashing the send. This is the same mechanism PTB used
+(`mention_markdown_v2` produces the exact same `tg://user?id=` MarkdownV2
+syntax under both libraries) - it's not something this conversion changed;
+it just wasn't rendering correctly until the parse_mode fix below.
+
+**Collapsed/expandable quotes:** `resources/phrases_en.py`'s
+`surround_with_expandable_quote()` marks a quote as expandable by ending its
+content in `||` (that's this codebase's own convention, not raw Bot API
+syntax). The parser recognizes that marker, strips it from the visible text,
+and sets Telethon's `MessageEntityBlockquote(collapsed=True)` accordingly -
+so `>`-quoted text ending in `||` renders as a genuine collapsible quote,
+matching whatever `surround_with_expandable_quote()` is used on.
 
 ## Bugs found after the first real deployment (now fixed)
 
 The first version of this conversion was written and validated entirely
 statically (no Telethon install, no live bot) - see "How this was verified"
-above for why. After deploying it against a real bot token, two real bugs
-turned up, both now fixed and both worth understanding since they were
-genuine gaps in my original reasoning, not hypothetical edge cases:
+above for why. After deploying it against a real bot token, several real
+bugs turned up. All are now fixed; each is documented here because they're
+genuine gaps in my original reasoning, not hypothetical edge cases, and
+knowing the mechanism matters if something similar turns up later.
 
 - **Images/videos/animations were sending as generic "unnamed" file
   attachments instead of rendering inline.** Root cause: Telethon decides
@@ -196,14 +208,95 @@ genuine gaps in my original reasoning, not hypothetical edge cases:
   switching to `client.download_profile_photo(user, file=path,
   download_big=True)` - Telethon's purpose-built method for exactly this -
   instead of the more manual `get_profile_photos()` + `download_media()`
-  chain. `TelegramUser.get_profile_photos()` still returns the same
-  `UserProfilePhotos` shape `user_service.py` expects; only the actual
-  download step underneath changed.
+  chain.
+- **Edited messages (captions specifically) were losing all MarkdownV2
+  formatting** - showing up with literal backslashes, asterisks, and raw
+  `tg://user?id=` link syntax instead of rendering bold/links/mentions (the
+  Doc Q screenshot). Root cause: python-telegram-bot has an
+  Application-wide default parse mode (`Defaults(parse_mode=...)`, configured
+  in the original `main.py`) that silently kicks in for any call that
+  doesn't explicitly pass `parse_mode`. `Bot.edit_message_caption()`'s one
+  call site in `message_service.py` was relying on exactly that fallback and
+  never passed `parse_mode` explicitly - which worked fine under PTB, but my
+  compat `Bot` class had no equivalent fallback and defaulted to `None` (no
+  parsing) instead. Fixed by giving `parse_mode` the same
+  `"MarkdownV2"` default PTB effectively had, everywhere text is sent or
+  edited (`send_message`, `edit_message_text`, `edit_message_caption`,
+  `send_photo`, `send_video`, `send_animation`, and `InputMedia`'s own
+  default for the `edit_message_media` path) - so any current or future call
+  site that omits `parse_mode` now behaves the way it did under PTB, instead
+  of silently sending raw markup.
+- **`reward.message_id = message.id` crashed with `AttributeError`** (daily
+  reward screens), which also explains the follow-up "chat_id and message_id
+  must be specified to delete message" error a minute later in the same
+  log - that reward's message_id was never saved because of the crash, so
+  the later attempt to delete/edit that message had nothing to work with.
+  PTB added `Message.id` as an alias for `Message.message_id` (for
+  consistency with `Chat.id`/`User.id`) at some point, and several newer
+  screens in this codebase (daily reward, devil fruit trade, RPS/RR games)
+  use `.id` rather than `.message_id`. Fixed by adding `.id` as a property
+  alias on the compat `Message` class.
+- **Colored buttons still wouldn't show up even after the Bot API 9.4
+  support was added.** This one was my own bug, not a Telethon gap: real
+  PTB's `InlineKeyboardButton(text, api_kwargs={"style": "success"})` nests
+  the style *inside* an `api_kwargs` dict (that's literally what
+  `api_kwargs` is - a bucket of extra fields merged into the Bot API JSON
+  request), but my style-lookup code was checking for a top-level `style`
+  key instead of `extra["api_kwargs"]["style"]`, so it silently never found
+  a style to apply. Fixed the lookup to check inside `api_kwargs` first.
+- **Most group commands (`/settings`, `/add`, and effectively anything
+  requiring a response from `group_chat_manager.py`) silently did nothing,
+  and the "thanks for adding me" welcome message never sent.** This was the
+  big one. `group_chat_manager.py`'s very first step on *every* group
+  message checks whether it's a join/leave event via
+  `update.message.new_chat_members[0].id == ...`, wrapped in
+  `except (AttributeError, IndexError)` - which only makes sense (and only
+  ever worked) because PTB guarantees `Message.new_chat_members` is always
+  at least an empty tuple, never `None`, so indexing `[0]` on an ordinary
+  message raises `IndexError` (caught) rather than crashing. My compat
+  `Message` defaulted it to `None` instead (unlike `.photo`, which I did
+  correctly default to `[]`) - so on every regular group message, that same
+  line raised `TypeError: 'NoneType' object is not subscriptable`, which
+  *isn't* one of the caught exception types. That exception then propagated
+  up to `manage_after_db`'s catch-all `except Exception`, got logged, and
+  the message was dropped with no response - before command dispatch, the
+  admin check, or anything else ever ran. Every group interaction that
+  needed `group_chat_manager.py` to actually respond was affected; things
+  that don't touch it (or that you tested in private chat) were fine, which
+  is why it looked like only specific commands were broken rather than
+  groups being broken outright. Fixed by defaulting `new_chat_members` to
+  `()`, matching what PTB actually guarantees.
+- **Games (Guess or Life, Who's Who, Punk Records, Shambles) sent no
+  initial hint, and no follow-up hints after their interval (30s/60s
+  depending on the game).** These games run their hint loop entirely via
+  `context.application.create_task(...)` - an initial send, then
+  `await asyncio.sleep(hint_wait_seconds)`, then the function calls itself
+  again to repeat. My `Application.create_task()` wrapped the coroutine in
+  `asyncio.ensure_future()` and returned it, same as every call site in the
+  codebase does - discarding the return value, since none of them need to
+  await or track it themselves. That's the exact pattern
+  [Python's own asyncio docs warn against](https://docs.python.org/3/library/asyncio-task.html#asyncio.create_task):
+  a task with nothing holding a strong reference to it can be garbage
+  collected before it finishes, "even before it's done" - and the longer a
+  task stays suspended, the bigger that window gets. A quick fire-and-send
+  task might survive by luck; a task suspended in `asyncio.sleep(30)` or
+  `asyncio.sleep(60)` had a much larger window to get swept away mid-wait,
+  which matches exactly what was reported (the recursive nature of the hint
+  loop meant that once one iteration got collected, every hint after it
+  silently stopped too). Fixed by having `Application` hold a strong
+  reference to every task it creates in a set, removing it via
+  `add_done_callback` once it completes - the standard fix for this,
+  confirmed with a test that forces a GC pass mid-`asyncio.sleep()` and
+  checks the task is still tracked and still completes.
 
-If you deploy this and hit something that looks similarly "off" (a specific
-message not rendering right, a specific action erroring), the most useful
-thing to send back is the exact command/action plus the traceback or a
-screenshot - that's what made both of these findable.
+If you deploy this and hit something that looks similarly "off," the most
+useful thing to send back is the exact command/action plus the traceback or
+a screenshot - that's what made all of these findable.
+
+If that's not it, the most useful next thing is a concrete repro: does a
+plain command (e.g. `/start`) get any response at all in the group, and if
+not, is there anything in the logs at that timestamp (even if it looks
+unrelated)?
 
 ## Correction: button colors are real, and now implemented
 

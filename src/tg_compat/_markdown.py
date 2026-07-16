@@ -144,6 +144,17 @@ def parse_markdown_v2(source):
                 else:
                     j = line_end
                     break
+
+            # This codebase's own convention for an expandable/collapsed
+            # quote (see resources/phrases_en.py's surround_with_expandable_quote):
+            # every line prefixed with '>', with the visible content ending
+            # in '||' as the "make this collapsible" marker. Strip that
+            # marker before treating the rest as plain quote content.
+            collapsed = False
+            if quote_lines and quote_lines[-1].endswith("||"):
+                quote_lines[-1] = quote_lines[-1][:-2]
+                collapsed = True
+
             inner_source = "\n".join(quote_lines)
             start_off = cur_offset()
             inner_plain, inner_entities = parse_markdown_v2(inner_source)
@@ -153,7 +164,7 @@ def parse_markdown_v2(source):
             for e in inner_entities:
                 e.offset += start_off
                 entities.append(e)
-            entities.append(MessageEntityBlockquote(offset=start_off, length=length))
+            entities.append(MessageEntityBlockquote(offset=start_off, length=length, collapsed=collapsed))
             i = j
             continue
 

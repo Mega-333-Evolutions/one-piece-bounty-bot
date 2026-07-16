@@ -57,7 +57,7 @@ class Message:
         self.dice = kwargs.get("dice")
         self.via_bot: TelegramUser = kwargs.get("via_bot")
         self.poll: Poll = kwargs.get("poll")
-        self.new_chat_members = kwargs.get("new_chat_members")
+        self.new_chat_members = kwargs.get("new_chat_members") or ()
         self.left_chat_member: TelegramUser = kwargs.get("left_chat_member")
         self.migrate_to_chat_id = kwargs.get("migrate_to_chat_id")
         self.message_thread_id = kwargs.get("message_thread_id")
@@ -68,6 +68,14 @@ class Message:
         self._client = kwargs.get("_client")
         self._bot = kwargs.get("_bot")
         self._tl_message = kwargs.get("_tl_message")
+
+    @property
+    def id(self):
+        """Mirrors telegram.Message.id, PTB's alias for message_id (added for
+        naming consistency with Chat.id/User.id/CallbackQuery.id). Several
+        screens in this codebase (daily reward, devil fruit trade, RPS/RR
+        games) read message.id directly rather than message.message_id."""
+        return self.message_id
 
     def get_bot(self):
         return self._bot
