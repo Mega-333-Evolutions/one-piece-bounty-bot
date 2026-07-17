@@ -31,6 +31,32 @@ from .constants import ChatMemberStatus
 logger = logging.getLogger(__name__)
 
 
+def coerce_peer(value):
+    """
+    Business logic throughout this codebase passes chat/user ids as *either*
+    int or str pretty much interchangeably (e.g. `chat_id: int | str` is the
+    documented signature of message_service.py's full_message_send, and
+    `group.tg_group_id`/`user.tg_user_id` are stored as string columns and
+    frequently passed straight through). Bot API's HTTP/JSON transport
+    didn't care either way, but Telethon's entity resolution does: given a
+    bare numeric *string* (as opposed to an int), it doesn't recognize it as
+    "just an ID" - it tries to resolve it the way a user account would
+    (username, phone number, etc.), and a bot account is forbidden from
+    doing that kind of contact/phone lookup at all, so it fails with
+    BotMethodInvalidError wrapped in a confusing ValueError.
+
+    Coerce any string that's actually just a plain (optionally negative)
+    integer into a real int; leave anything else (usernames, already-
+    resolved entities, None) untouched - Telethon handles those correctly
+    already.
+    """
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped.lstrip("-").isdigit():
+            return int(stripped)
+    return value
+
+
 # --------------------------------------------------------------------------
 # User
 # --------------------------------------------------------------------------
@@ -261,6 +287,9 @@ async def _get_chat_member(client, chat_entity, user_id) -> ChatMember:
     codebase's user_is_chat_member() treats them identically anyway."""
     from ._errors import translate_errors
 
+    chat_entity = coerce_peer(chat_entity)
+    user_id = coerce_peer(user_id)
+
     user_entity = await translate_errors(client.get_entity(user_id))
     user = TelegramUser.from_entity(user_entity, client)
 
@@ -285,9 +314,9 @@ async def _get_chat_administrators(client, chat_entity):
     channels/supergroups."""
     from ._errors import translate_errors
 
-    entity = chat_entity
+    entity = coerce_peer(chat_entity)
     if not isinstance(entity, (Channel, TLChat, TLUser)):
-        entity = await translate_errors(client.get_entity(chat_entity))
+        entity = await translate_errors(client.get_entity(entity))
 
     result = []
     if isinstance(entity, Channel):

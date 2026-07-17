@@ -29,6 +29,7 @@ from ._types import (
     MessageOriginChat,
     MessageOriginChannel,
     MessageOriginHidden,
+    coerce_peer,
 )
 
 logger = logging.getLogger(__name__)
@@ -95,6 +96,7 @@ class Message:
         )
 
     async def forward(self, chat_id, disable_notification: bool = False) -> "Message":
+        chat_id = coerce_peer(chat_id)
         result = await translate_errors(
             self._client.forward_messages(
                 chat_id,

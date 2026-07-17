@@ -25,6 +25,7 @@ from ._types import (
     is_media_ref,
     decode_media_ref,
     _get_chat_member,
+    coerce_peer,
 )
 from ._message import Message, answer_callback_query as _answer_callback_query
 
@@ -111,6 +112,7 @@ class Bot:
         message_thread_id=None,
         **_ignored,
     ) -> Message:
+        chat_id = coerce_peer(chat_id)
         plain, entities = await self._prepare_text(text, parse_mode)
         tl_message = await translate_errors(
             self._client.send_message(
@@ -136,6 +138,7 @@ class Bot:
         disable_web_page_preview=None,
         **_ignored,
     ) -> Message:
+        chat_id = coerce_peer(chat_id)
         plain, entities = await self._prepare_text(text, parse_mode)
         tl_message = await translate_errors(
             self._client.edit_message(
@@ -151,6 +154,7 @@ class Bot:
         return await Message.from_telethon(tl_message, self._client, self, fetch_reply=False)
 
     async def edit_message_reply_markup(self, chat_id=None, message_id=None, reply_markup=None, **_ignored) -> Message:
+        chat_id = coerce_peer(chat_id)
         tl_message = await translate_errors(
             self._client.edit_message(chat_id, message_id, buttons=convert_markup_to_buttons(reply_markup))
         )
@@ -159,6 +163,7 @@ class Bot:
     async def edit_message_caption(
         self, chat_id=None, message_id=None, caption=None, parse_mode="MarkdownV2", reply_markup=None, **_ignored
     ) -> Message:
+        chat_id = coerce_peer(chat_id)
         plain, entities = await self._prepare_text(caption, parse_mode)
         tl_message = await translate_errors(
             self._client.edit_message(
@@ -173,6 +178,7 @@ class Bot:
         return await Message.from_telethon(tl_message, self._client, self, fetch_reply=False)
 
     async def edit_message_media(self, chat_id=None, message_id=None, media=None, reply_markup=None, **_ignored) -> Message:
+        chat_id = coerce_peer(chat_id)
         plain, entities = await self._prepare_text(media.caption, media.parse_mode) if media else (None, None)
         ext_by_type = {"photo": ".jpg", "video": ".mp4", "animation": ".mp4"}
         default_extension = ext_by_type.get(getattr(media, "type", None), ".jpg")
@@ -191,12 +197,15 @@ class Bot:
         return await Message.from_telethon(tl_message, self._client, self, fetch_reply=False)
 
     async def delete_message(self, chat_id, message_id) -> bool:
+        chat_id = coerce_peer(chat_id)
         await translate_errors(self._client.delete_messages(chat_id, [message_id]))
         return True
 
     async def copy_message(
         self, chat_id, from_chat_id, message_id, message_thread_id=None, disable_notification=None, **_ignored
     ) -> Message:
+        chat_id = coerce_peer(chat_id)
+        from_chat_id = coerce_peer(from_chat_id)
         src = await translate_errors(self._client.get_messages(from_chat_id, ids=message_id))
         if src is None:
             from .error import BadRequest
@@ -229,12 +238,14 @@ class Bot:
         return await Message.from_telethon(tl_message, self._client, self, fetch_reply=False)
 
     async def pin_chat_message(self, chat_id, message_id, disable_notification=None, **_ignored):
+        chat_id = coerce_peer(chat_id)
         await translate_errors(
             self._client.pin_message(chat_id, message_id, notify=not disable_notification)
         )
         return True
 
     async def unpin_chat_message(self, chat_id, message_id=None, **_ignored):
+        chat_id = coerce_peer(chat_id)
         await translate_errors(self._client.unpin_message(chat_id, message_id))
         return True
 
@@ -254,6 +265,7 @@ class Bot:
         message_thread_id=None,
         **_ignored,
     ) -> Message:
+        chat_id = coerce_peer(chat_id)
         plain, entities = await self._prepare_text(caption, parse_mode)
         tl_message = await translate_errors(
             self._client.send_file(
@@ -284,6 +296,7 @@ class Bot:
         message_thread_id=None,
         **_ignored,
     ) -> Message:
+        chat_id = coerce_peer(chat_id)
         plain, entities = await self._prepare_text(caption, parse_mode)
         tl_message = await translate_errors(
             self._client.send_file(
@@ -315,6 +328,7 @@ class Bot:
         message_thread_id=None,
         **_ignored,
     ) -> Message:
+        chat_id = coerce_peer(chat_id)
         plain, entities = await self._prepare_text(caption, parse_mode)
         is_fresh_upload = isinstance(animation, (bytes, bytearray))
         tl_message = await translate_errors(

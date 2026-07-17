@@ -288,15 +288,36 @@ knowing the mechanism matters if something similar turns up later.
   `add_done_callback` once it completes - the standard fix for this,
   confirmed with a test that forces a GC pass mid-`asyncio.sleep()` and
   checks the task is still tracked and still completes.
+- **Scheduled jobs and the game hint loop crashed with `ValueError: Cannot
+  get entity by phone number as a bot`, and the games issue turned out to
+  have a second cause on top of the task GC one above.** `User.tg_user_id`
+  (and `Group.tg_group_id`) are stored as `CharField` - plain strings - and
+  this codebase passes them as `chat_id` more or less interchangeably with
+  actual ints throughout (`full_message_send`'s `chat_id` parameter is
+  explicitly typed `int | str`). Bot API's HTTP/JSON transport never cared
+  either way, but Telethon's entity resolution does: given a bare numeric
+  *string* rather than an int, it doesn't recognize "this is just an ID" -
+  it tries to resolve it the way a real user account would (username, phone
+  number, ...), and a bot account is forbidden from doing that kind of
+  lookup at all, so it fails with `BotMethodInvalidError` wrapped in a
+  confusing `ValueError`. This hit every `context.bot.*` call anywhere a
+  string id was passed - including the games' `chat_id=u.tg_user_id` in
+  their hint loop, which explains why fixing the task-GC issue alone didn't
+  fully fix them: the very first send in the chain was throwing before ever
+  reaching the sleep-and-recurse step, so the chain never got anywhere,
+  independent of whether the task itself survived. Fixed with a
+  `coerce_peer()` helper, applied everywhere a chat/user id reaches
+  Telethon (`Bot`'s methods, `Message.forward()`, chat-member lookups) -
+  any string that's actually just a plain (optionally negative) integer
+  gets converted to a real `int`; anything else (usernames, already-resolved
+  entities) passes through unchanged. Verified end-to-end with a test that
+  calls `Bot.send_message(chat_id='1001484109', ...)` (a string, exactly how
+  the game code calls it) and confirms Telethon's own `send_message`
+  receives a real `int`.
 
 If you deploy this and hit something that looks similarly "off," the most
 useful thing to send back is the exact command/action plus the traceback or
 a screenshot - that's what made all of these findable.
-
-If that's not it, the most useful next thing is a concrete repro: does a
-plain command (e.g. `/start`) get any response at all in the group, and if
-not, is there anything in the logs at that timestamp (even if it looks
-unrelated)?
 
 ## Correction: button colors are real, and now implemented
 
@@ -320,6 +341,39 @@ have this field yet, it's caught and the button is sent without a color
 rather than failing the whole send - check your logs for a
 `tg_compat: this Telethon version doesn't support colored buttons` warning
 if colors don't show up; that means it's worth updating Telethon.
+
+## Hyperlinks and user mentions
+
+Checked `[text](url)` links specifically (`SUPPORT_GROUP_DEEPLINK`, the
+`Global Challenges` section, and the game deeplinks built by
+`get_global_game_item_text_deeplink`) against the parser directly, including
+the fully-assembled multi-line blockquote text `DAILY_REWARD_GLOBAL_CHALLENGE`
+actually produces - all parse correctly into proper link/blockquote entities
+in isolation. Given that, and given the chat_id bug above would have caused
+some of these same messages to fail to send at all rather than send
+malformed, I'd try again with this build before assuming there's a further
+link-specific bug - if a specific message still shows a raw, unclickable
+`[text](url)` after this, that's the one to send back with a screenshot.
+
+On mentions: `mention_markdown_v2()` (`src/service/message_service.py`)
+unconditionally builds `[name](tg://user?id=X)`, unconditionally, for every
+mention - that's unchanged from the original PTB code (this function is a
+direct wrapper around the same `mention_markdown()` helper both versions
+use), not something this conversion added or could remove without editing
+business logic. A `tg://user?id=` mention, when it renders correctly, always
+shows as styled/clickable text - Telegram renders "text mention" entities
+the same way it renders a regular link, just pointing at `tg://user?id=`
+instead of `https://`; there's no way to have a mention of this kind that
+doesn't look clickable, since that's what the entity type is. If what you're
+seeing is the *raw* text `[name](tg://user?id=...)` visibly in the message,
+that's the same parse_mode/entity-application bug as everything else in this
+section, not the mention mechanism itself - and is worth a fresh look now
+that the chat_id fix above is in, since that was silently killing sends
+outright in some paths rather than sending them malformed. If it's still
+showing the name as a working, correctly-rendered link and that's genuinely
+not what you want (e.g. you'd rather have plain bold text, no link at all),
+that's a real, easy change, but it is a behavior change from what the
+original bot did - let me know and I'll make it.
 
 ## Known limitations / things worth knowing
 
