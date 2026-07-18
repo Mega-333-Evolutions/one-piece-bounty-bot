@@ -53,6 +53,22 @@ def utf16_len(s: str) -> int:
     return len(s.encode("utf-16-le")) // 2
 
 
+def _normalize_url(url: str) -> str:
+    """
+    A MessageEntityTextUrl whose url has no recognized scheme (e.g. a
+    misconfigured env var storing "t.me/xxx" instead of "https://t.me/xxx")
+    risks being silently rejected by Telegram's servers - the rest of the
+    message still sends, but that one link renders as plain text with no
+    visible error anywhere, which is a hard failure mode to track down.
+    tg://... links (used for user mentions, already a recognized scheme) are
+    left untouched; anything else with no "scheme://" prefix gets "https://"
+    prepended, matching how a browser address bar treats a bare domain.
+    """
+    if "://" in url or url.startswith("tg:"):
+        return url
+    return "https://" + url
+
+
 def _find_unescaped(s: str, start: int, token: str) -> int:
     """Find the first unescaped occurrence of `token` at/after `start`."""
     i = start
@@ -213,7 +229,7 @@ def parse_markdown_v2(source):
                 close_paren = source.find(")", close_bracket + 2)
                 if close_paren != -1:
                     link_text = source[i + 1 : close_bracket]
-                    url = source[close_bracket + 2 : close_paren]
+                    url = _normalize_url(source[close_bracket + 2 : close_paren])
                     start_off = cur_offset()
                     inner_plain, inner_entities = parse_markdown_v2(link_text)
                     for c in inner_plain:
@@ -299,4 +315,13 @@ def parse_markdown_v2(source):
         out.append(ch)
         i += 1
 
+    # Entities get appended to this list in the order the parser resolves
+    # them, not necessarily in text order - a link nested inside a
+    # blockquote is appended before the blockquote's own entity (since the
+    # blockquote's own entity is only known/appended once its full extent,
+    # including everything nested inside it, has been parsed), even though
+    # the blockquote's offset is numerically earlier. Sort by offset before
+    # returning so callers always get a well-ordered list, matching what a
+    # server-side entity consumer expects.
+    entities.sort(key=lambda e: e.offset)
     return "".join(out), entities

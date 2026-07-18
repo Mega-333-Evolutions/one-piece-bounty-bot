@@ -344,36 +344,70 @@ if colors don't show up; that means it's worth updating Telethon.
 
 ## Hyperlinks and user mentions
 
-Checked `[text](url)` links specifically (`SUPPORT_GROUP_DEEPLINK`, the
-`Global Challenges` section, and the game deeplinks built by
-`get_global_game_item_text_deeplink`) against the parser directly, including
-the fully-assembled multi-line blockquote text `DAILY_REWARD_GLOBAL_CHALLENGE`
-actually produces - all parse correctly into proper link/blockquote entities
-in isolation. Given that, and given the chat_id bug above would have caused
-some of these same messages to fail to send at all rather than send
-malformed, I'd try again with this build before assuming there's a further
-link-specific bug - if a specific message still shows a raw, unclickable
-`[text](url)` after this, that's the one to send back with a screenshot.
+**User mentions already use `MessageEntityMentionName`, not a URL-based
+entity.** `_markdown.py` special-cases `tg://user?id=` links so they always
+become `telethon.tl.types.MessageEntityMentionName` (offset, length,
+user_id) - never `MessageEntityTextUrl`. This was already true before this
+round of fixes; confirmed again directly against the parser:
+```
+[Bharath](tg://user?id=1001484109) -> MessageEntityMentionName(user_id=1001484109)
+```
+`mention_markdown_v2()` in `message_service.py` is unchanged from the
+original PTB code (it's a direct wrapper around the same `mention_markdown()`
+helper both versions use) - this conversion didn't add or change the mention
+mechanism itself. One thing worth knowing regardless of entity type: a
+mention rendered correctly always looks clickable/styled - that's inherent
+to what a "text mention" entity is, in both PTB and here, not specific to
+which underlying entity type is used.
 
-On mentions: `mention_markdown_v2()` (`src/service/message_service.py`)
-unconditionally builds `[name](tg://user?id=X)`, unconditionally, for every
-mention - that's unchanged from the original PTB code (this function is a
-direct wrapper around the same `mention_markdown()` helper both versions
-use), not something this conversion added or could remove without editing
-business logic. A `tg://user?id=` mention, when it renders correctly, always
-shows as styled/clickable text - Telegram renders "text mention" entities
-the same way it renders a regular link, just pointing at `tg://user?id=`
-instead of `https://`; there's no way to have a mention of this kind that
-doesn't look clickable, since that's what the entity type is. If what you're
-seeing is the *raw* text `[name](tg://user?id=...)` visibly in the message,
-that's the same parse_mode/entity-application bug as everything else in this
-section, not the mention mechanism itself - and is worth a fresh look now
-that the chat_id fix above is in, since that was silently killing sends
-outright in some paths rather than sending them malformed. If it's still
-showing the name as a working, correctly-rendered link and that's genuinely
-not what you want (e.g. you'd rather have plain bold text, no link at all),
-that's a real, easy change, but it is a behavior change from what the
-original bot did - let me know and I'll make it.
+**Plain hyperlinks (`[text](url)`) - two real bugs found and fixed, but I
+want to be upfront about what's confirmed vs. what's a well-justified but
+unverified fix,** since I don't have a live Telegram connection to test
+against:
+
+- **Confirmed bug: entities were sometimes generated out of order.** A link
+  nested inside a blockquote (e.g. `>join the [Support Group](url)`, which
+  is exactly how `JOIN_SUPPORT_GROUP` is built) got its `TextUrl` entity
+  appended to the list *before* the blockquote's own entity, even though
+  the blockquote's offset is numerically earlier - because the parser only
+  knows the blockquote's full extent (and can only emit its entity) after
+  finishing everything nested inside it. Verified directly: for the actual
+  `/start` message text, entities came back as
+  `[TextUrl(offset=135), Blockquote(offset=89)]` - unsorted. Fixed by
+  sorting the final entity list by offset before returning it.
+- **Well-justified but unverified: URLs missing a scheme could be silently
+  rejected.** `get_deeplink()`'s URLs always include `https://`, but a
+  plain configured link like `SUPPORT_GROUP_LINK` depends on being entered
+  correctly in `.env` - if it were ever stored without `https://` (e.g.
+  `t.me/xxx` instead of `https://t.me/xxx`), that's a plausible way for
+  Telegram's servers to silently reject just that one entity while sending
+  the rest of the message fine - which would exactly match "everything
+  else renders, this one link doesn't." Added a normalization step that
+  prepends `https://` to any URL entity that doesn't already have a
+  recognized scheme. This is a real, safe improvement either way, but I
+  can't confirm it was *the* cause of what you saw without seeing your
+  actual configured link value or a live test.
+
+**What I verified and ruled out**, for the "Jolly Pirates" crew-name case
+specifically (a link that is *not* nested in a blockquote, so the ordering
+bug above doesn't apply to it): I reconstructed the exact real message text
+`SHOW_USER_STATUS` produces (same field order: User, Bounty, Pending, Rank,
+Crew, quoted Location) and traced the entity the parser generates for
+`[Jolly Pirates](url)` down to its exact offset and length, double-checked
+using proper UTF-16 code-unit-based extraction (Telegram counts entity
+offsets in UTF-16 units, not Python string indices - a naive check using
+Python slicing gives an off-by-one false positive here because of the
+astral-plane emoji earlier in the message, which is worth knowing in its
+own right if you ever debug this further). The entity that comes out is
+correct: `offset=93, length=13` extracts exactly `"Jolly Pirates"`. I
+traced this entity through `Bot._prepare_text()` and Telethon's own
+`send_file()` source and didn't find anywhere it should get lost. I don't
+have a definitive further explanation for this specific case beyond the two
+fixes above - if "Jolly Pirates" (or any other non-blockquoted link) still
+doesn't render as a link after this build, that's the single most useful
+thing to send back, ideally with confirmation of whether *every* plain
+link fails or just some, since that would meaningfully narrow down what's
+left.
 
 ## Known limitations / things worth knowing
 
