@@ -1,18 +1,23 @@
 """
-Minimal MarkdownV2 (Telegram Bot API flavor) parser.
+MarkdownV2 (Telegram Bot API flavor) -> HTML converter.
 
 The original codebase was written against python-telegram-bot and formats all
 of its text using Bot API's MarkdownV2 dialect (see ``constants.TG_DEFAULT_PARSE_MODE``
 and ``src/utils/string_utils.py``'s ``escape_valid_markdown_chars`` /
-``escape_invalid_markdown_chars`` helpers). Telethon ships its own markdown
-dialect (``telethon.extensions.markdown``) which uses different escaping
-rules, so feeding Bot-API-escaped text into Telethon's own parser would leave
-stray backslashes visible to end users.
+``escape_invalid_markdown_chars`` helpers).
 
-This module parses the Bot API MarkdownV2 grammar directly into
-``(plain_text, [MessageEntity, ...])`` so it can be handed to Telethon's
-``formatting_entities`` parameter, bypassing Telethon's own markdown parsing
-entirely and preserving the exact rendering the original bot produced.
+Earlier versions of this compat layer parsed MarkdownV2 directly into raw
+``telethon.tl.types.MessageEntity*`` objects and passed them via
+``formatting_entities=``, bypassing Telethon's own parser entirely. That
+approach turned out to be too fragile in practice (specific formatting -
+plain hyperlinks in particular - silently failed to render, without a
+reproducible root cause found through static analysis alone). This module
+instead converts Bot-API-flavored MarkdownV2 into the HTML dialect Telethon's
+own, battle-tested ``parse_mode='html'`` understands
+(``telethon/extensions/html.py``), and lets Telethon do the actual parsing,
+entity construction, and (for mentions) access-hash resolution - the same
+code path used by every other Telethon-based bot, rather than a hand-rolled
+one specific to this project.
 
 Supported syntax (https://core.telegram.org/bots/api#markdownv2-style):
     *bold*
@@ -25,41 +30,35 @@ Supported syntax (https://core.telegram.org/bots/api#markdownv2-style):
     pre block
     ```
     [text](http://example.com)      -> text link
-    [text](tg://user?id=12345)      -> text mention (by user id)
+    [text](tg://user?id=12345)      -> inline mention of a user by id
+    >quoted line                    -> blockquote (consecutive '>' lines)
+    >quoted line ending in ||       -> expandable/collapsible blockquote
+                                        (this codebase's own convention, see
+                                        resources/phrases_en.py's
+                                        surround_with_expandable_quote)
 
 Any character preceded by ``\\`` is treated as a literal character.
-Nesting is supported by recursively parsing the inner text of an entity.
+Nesting is supported by recursively converting the inner text of each
+construct - since the output is HTML, nesting falls out naturally from
+properly nested tags rather than needing manual offset/length bookkeeping.
 """
 
-from telethon.tl.types import (
-    MessageEntityBold,
-    MessageEntityItalic,
-    MessageEntityUnderline,
-    MessageEntityStrike,
-    MessageEntitySpoiler,
-    MessageEntityCode,
-    MessageEntityPre,
-    MessageEntityTextUrl,
-    MessageEntityMentionName,
-    MessageEntityBlockquote,
-)
+import html as _html
 
 
-def utf16_len(s: str) -> int:
-    """Length of a string in UTF-16 code units, which is how Telegram counts
-    entity offsets/lengths (surrogate-pair characters count as 2)."""
-    if not s:
-        return 0
-    return len(s.encode("utf-16-le")) // 2
+def _escape(text: str) -> str:
+    """HTML-escape literal text so it can't be misread as markup by
+    Telethon's HTML parser. Does not escape quotes, since this text never
+    ends up inside an HTML attribute."""
+    return _html.escape(text, quote=False)
 
 
 def _normalize_url(url: str) -> str:
     """
-    A MessageEntityTextUrl whose url has no recognized scheme (e.g. a
-    misconfigured env var storing "t.me/xxx" instead of "https://t.me/xxx")
-    risks being silently rejected by Telegram's servers - the rest of the
-    message still sends, but that one link renders as plain text with no
-    visible error anywhere, which is a hard failure mode to track down.
+    A link whose url has no recognized scheme (e.g. a misconfigured env var
+    storing "t.me/xxx" instead of "https://t.me/xxx") risks being silently
+    rejected by Telegram's servers - the rest of the message still sends,
+    but that one link renders as plain text with no visible error anywhere.
     tg://... links (used for user mentions, already a recognized scheme) are
     left untouched; anything else with no "scheme://" prefix gets "https://"
     prepended, matching how a browser address bar treats a bare domain.
@@ -84,35 +83,19 @@ def _find_unescaped(s: str, start: int, token: str) -> int:
     return -1
 
 
-def parse_markdown_v2(source):
-    """
-    Parse a MarkdownV2-formatted string into (plain_text, entities).
-
-    :param source: MarkdownV2 formatted text, or None
-    :return: tuple of (plain text with markup stripped, list of raw
-             telethon.tl.types.MessageEntity* objects with UTF-16 offsets).
-             MessageEntityMentionName entities carry a plain int `user_id`;
-             the caller is responsible for resolving that into an
-             InputMessageEntityMentionName (which needs an InputUser) before
-             sending, since resolution requires an async client call.
-    """
-    if source is None:
-        return None, []
-
+def _to_html(source: str) -> str:
+    """Recursively convert a MarkdownV2-formatted string into HTML."""
     i = 0
     n = len(source)
     out = []
-    entities = []
 
-    def cur_offset():
-        return utf16_len("".join(out))
-
-    def consume_wrapped(delim, entity_builder, closing=None):
+    def consume_wrapped(delim, tag, closing=None, attrs=""):
         """
-        Parse `delim ... (closing or delim)`, recursing into the inner text.
-        Returns True if a full match was consumed (i pointer already advanced),
-        False if there was no valid closing delimiter (caller should emit the
-        opening character literally and advance by one).
+        Parse `delim ... (closing or delim)`, recursing into the inner text
+        and wrapping the result in `<tag attrs>...</tag>`. Returns True if a
+        full match was consumed (i pointer already advanced), False if there
+        was no valid closing delimiter (caller should emit the opening
+        character literally and advance by one).
         """
         nonlocal i
         closing = closing or delim
@@ -120,26 +103,18 @@ def parse_markdown_v2(source):
         if end == -1:
             return False
         inner = source[i + len(delim) : end]
-        start_off = cur_offset()
-        inner_plain, inner_entities = parse_markdown_v2(inner)
-        for ch in inner_plain:
-            out.append(ch)
-        length = cur_offset() - start_off
-        for e in inner_entities:
-            e.offset += start_off
-            entities.append(e)
-        built = entity_builder(start_off, length)
-        if built is not None:
-            entities.append(built)
+        out.append(f"<{tag}{attrs}>")
+        out.append(_to_html(inner))
+        out.append(f"</{tag}>")
         i = end + len(closing)
         return True
 
     while i < n:
         ch = source[i]
 
-        # Escaped character -> literal
+        # Escaped character -> literal (still needs HTML-escaping, e.g. \< )
         if ch == "\\" and i + 1 < n:
-            out.append(source[i + 1])
+            out.append(_escape(source[i + 1]))
             i += 2
             continue
 
@@ -164,23 +139,17 @@ def parse_markdown_v2(source):
             # This codebase's own convention for an expandable/collapsed
             # quote (see resources/phrases_en.py's surround_with_expandable_quote):
             # every line prefixed with '>', with the visible content ending
-            # in '||' as the "make this collapsible" marker. Strip that
-            # marker before treating the rest as plain quote content.
-            collapsed = False
+            # in '||' as the "make this collapsible" marker.
+            expandable = False
             if quote_lines and quote_lines[-1].endswith("||"):
                 quote_lines[-1] = quote_lines[-1][:-2]
-                collapsed = True
+                expandable = True
 
             inner_source = "\n".join(quote_lines)
-            start_off = cur_offset()
-            inner_plain, inner_entities = parse_markdown_v2(inner_source)
-            for c in inner_plain:
-                out.append(c)
-            length = cur_offset() - start_off
-            for e in inner_entities:
-                e.offset += start_off
-                entities.append(e)
-            entities.append(MessageEntityBlockquote(offset=start_off, length=length, collapsed=collapsed))
+            attrs = " expandable" if expandable else ""
+            out.append(f"<blockquote{attrs}>")
+            out.append(_to_html(inner_source))
+            out.append("</blockquote>")
             i = j
             continue
 
@@ -188,7 +157,7 @@ def parse_markdown_v2(source):
         if source[i : i + 3] == "```":
             end = source.find("```", i + 3)
             if end == -1:
-                out.append(ch)
+                out.append(_escape(ch))
                 i += 1
                 continue
             block = source[i + 3 : end]
@@ -198,27 +167,29 @@ def parse_markdown_v2(source):
                 if first_line and not any(c.isspace() for c in first_line):
                     lang = first_line
                     block = rest
-            start_off = cur_offset()
-            for c in block:
-                out.append(c)
-            length = cur_offset() - start_off
-            entities.append(MessageEntityPre(offset=start_off, length=length, language=lang))
+            if lang:
+                out.append(f'<pre><code class="language-{_escape(lang)}">')
+                out.append(_escape(block))
+                out.append("</code></pre>")
+            else:
+                out.append("<pre>")
+                out.append(_escape(block))
+                out.append("</pre>")
             i = end + 3
             continue
 
-        # Inline code `...`
+        # Inline code `...` (contents are literal - no nested formatting/escaping
+        # of markdown syntax, only HTML-escaping so the raw text displays as-is)
         if ch == "`":
             end = source.find("`", i + 1)
             if end == -1:
-                out.append(ch)
+                out.append(_escape(ch))
                 i += 1
                 continue
             code_text = source[i + 1 : end]
-            start_off = cur_offset()
-            for c in code_text:
-                out.append(c)
-            length = cur_offset() - start_off
-            entities.append(MessageEntityCode(offset=start_off, length=length))
+            out.append("<code>")
+            out.append(_escape(code_text))
+            out.append("</code>")
             i = end + 1
             continue
 
@@ -230,98 +201,69 @@ def parse_markdown_v2(source):
                 if close_paren != -1:
                     link_text = source[i + 1 : close_bracket]
                     url = _normalize_url(source[close_bracket + 2 : close_paren])
-                    start_off = cur_offset()
-                    inner_plain, inner_entities = parse_markdown_v2(link_text)
-                    for c in inner_plain:
-                        out.append(c)
-                    length = cur_offset() - start_off
-                    for e in inner_entities:
-                        e.offset += start_off
-                        entities.append(e)
-                    if url.startswith("tg://user?id="):
-                        try:
-                            user_id = int(url[len("tg://user?id=") :].split("&")[0])
-                            entities.append(
-                                MessageEntityMentionName(
-                                    offset=start_off, length=length, user_id=user_id
-                                )
-                            )
-                        except ValueError:
-                            entities.append(
-                                MessageEntityTextUrl(offset=start_off, length=length, url=url)
-                            )
-                    else:
-                        entities.append(
-                            MessageEntityTextUrl(offset=start_off, length=length, url=url)
-                        )
+                    out.append(f'<a href="{_html.escape(url, quote=True)}">')
+                    out.append(_to_html(link_text))
+                    out.append("</a>")
                     i = close_paren + 1
                     continue
-            out.append(ch)
+            out.append(_escape(ch))
             i += 1
             continue
 
         # Spoiler ||...||
         if source[i : i + 2] == "||":
-            if consume_wrapped(
-                "||",
-                lambda off, length: MessageEntitySpoiler(offset=off, length=length),
-                closing="||",
-            ):
+            if consume_wrapped("||", "tg-spoiler", closing="||"):
                 continue
-            out.append(ch)
+            out.append(_escape(ch))
             i += 1
             continue
 
         # Underline __...__  (must be checked before single-underscore italic)
         if source[i : i + 2] == "__":
-            if consume_wrapped(
-                "__",
-                lambda off, length: MessageEntityUnderline(offset=off, length=length),
-                closing="__",
-            ):
+            if consume_wrapped("__", "u", closing="__"):
                 continue
-            out.append(ch)
+            out.append(_escape(ch))
             i += 1
             continue
 
         # Bold *...*
         if ch == "*":
-            if consume_wrapped("*", lambda off, length: MessageEntityBold(offset=off, length=length)):
+            if consume_wrapped("*", "b"):
                 continue
-            out.append(ch)
+            out.append(_escape(ch))
             i += 1
             continue
 
         # Strikethrough ~...~
         if ch == "~":
-            if consume_wrapped(
-                "~", lambda off, length: MessageEntityStrike(offset=off, length=length)
-            ):
+            if consume_wrapped("~", "s"):
                 continue
-            out.append(ch)
+            out.append(_escape(ch))
             i += 1
             continue
 
         # Italic _..._
         if ch == "_":
-            if consume_wrapped(
-                "_", lambda off, length: MessageEntityItalic(offset=off, length=length)
-            ):
+            if consume_wrapped("_", "i"):
                 continue
-            out.append(ch)
+            out.append(_escape(ch))
             i += 1
             continue
 
-        out.append(ch)
+        out.append(_escape(ch))
         i += 1
 
-    # Entities get appended to this list in the order the parser resolves
-    # them, not necessarily in text order - a link nested inside a
-    # blockquote is appended before the blockquote's own entity (since the
-    # blockquote's own entity is only known/appended once its full extent,
-    # including everything nested inside it, has been parsed), even though
-    # the blockquote's offset is numerically earlier. Sort by offset before
-    # returning so callers always get a well-ordered list, matching what a
-    # server-side entity consumer expects.
-    entities.sort(key=lambda e: e.offset)
-    return "".join(out), entities
+    return "".join(out)
+
+
+def markdown_v2_to_html(source):
+    """
+    Convert a MarkdownV2 (Bot API flavor) formatted string into HTML
+    suitable for Telethon's parse_mode='html'.
+
+    :param source: MarkdownV2 formatted text, or None
+    :return: HTML string, or None if source is None
+    """
+    if source is None:
+        return None
+    return _to_html(source)

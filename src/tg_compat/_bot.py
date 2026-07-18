@@ -4,6 +4,13 @@ context.bot (and returned by Update.get_bot() / Message.get_bot()) throughout
 the codebase. Every method here mirrors the exact keyword signature the
 original code calls it with (see MIGRATION_NOTES.md for the audit of every
 call site), backed entirely by a Telethon TelegramClient.
+
+Formatting: rather than hand-constructing raw telethon.tl.types.MessageEntity*
+objects and passing them via formatting_entities= (an earlier approach that
+turned out to be too fragile in practice - see MIGRATION_NOTES.md), text is
+converted from this codebase's MarkdownV2 into HTML (_markdown.py) and sent
+with parse_mode='html', letting Telethon's own parser/entity-builder do the
+actual work - the same code path used by every other Telethon-based bot.
 """
 
 import logging
@@ -14,13 +21,12 @@ from telethon.tl.types import (
     DocumentAttributeAnimated,
     InputPhoto,
     InputDocument,
-    MessageEntityMentionName,
-    InputMessageEntityMentionName,
 )
 
 from ._errors import translate_errors
-from ._markdown import parse_markdown_v2
+from ._markdown import markdown_v2_to_html
 from ._keyboard import convert_markup_to_buttons
+from ._mentions import resolve_mentions
 from ._types import (
     is_media_ref,
     decode_media_ref,
@@ -50,30 +56,16 @@ class Bot:
     # -- text preparation -------------------------------------------------
 
     async def _prepare_text(self, text, parse_mode):
+        """
+        Convert this codebase's MarkdownV2 text into HTML for Telethon's own
+        parser to handle. Returns (text_to_send, telethon_parse_mode).
+        """
         if text is None:
             return None, None
         if parse_mode == "MarkdownV2":
-            plain, entities = parse_markdown_v2(text)
-        else:
-            plain, entities = text, []
-        if not entities:
-            return plain, None
-        resolved = []
-        for e in entities:
-            if isinstance(e, MessageEntityMentionName):
-                try:
-                    input_user = await self._client.get_input_entity(e.user_id)
-                    resolved.append(
-                        InputMessageEntityMentionName(offset=e.offset, length=e.length, user_id=input_user)
-                    )
-                except Exception:
-                    logger.warning(
-                        f"tg_compat: could not resolve mention entity for user {e.user_id}; "
-                        f"sending mention as plain text instead"
-                    )
-            else:
-                resolved.append(e)
-        return plain, (resolved or None)
+            text = await resolve_mentions(self._client, text)
+            return markdown_v2_to_html(text), "html"
+        return text, None
 
     def _resolve_media_input(self, media_value, default_extension: str = None):
         """bytes -> upload fresh; cached "tgcref1:" reference -> reuse without
@@ -113,13 +105,12 @@ class Bot:
         **_ignored,
     ) -> Message:
         chat_id = coerce_peer(chat_id)
-        plain, entities = await self._prepare_text(text, parse_mode)
+        body, tl_parse_mode = await self._prepare_text(text, parse_mode)
         tl_message = await translate_errors(
             self._client.send_message(
                 chat_id,
-                plain,
-                formatting_entities=entities,
-                parse_mode=None,
+                body,
+                parse_mode=tl_parse_mode,
                 link_preview=(not disable_web_page_preview) if disable_web_page_preview is not None else True,
                 silent=bool(disable_notification),
                 reply_to=self._reply_target(reply_to_message_id, message_thread_id),
@@ -139,14 +130,13 @@ class Bot:
         **_ignored,
     ) -> Message:
         chat_id = coerce_peer(chat_id)
-        plain, entities = await self._prepare_text(text, parse_mode)
+        body, tl_parse_mode = await self._prepare_text(text, parse_mode)
         tl_message = await translate_errors(
             self._client.edit_message(
                 chat_id,
                 message_id,
-                plain,
-                formatting_entities=entities,
-                parse_mode=None,
+                body,
+                parse_mode=tl_parse_mode,
                 link_preview=(not disable_web_page_preview) if disable_web_page_preview is not None else True,
                 buttons=convert_markup_to_buttons(reply_markup),
             )
@@ -164,14 +154,13 @@ class Bot:
         self, chat_id=None, message_id=None, caption=None, parse_mode="MarkdownV2", reply_markup=None, **_ignored
     ) -> Message:
         chat_id = coerce_peer(chat_id)
-        plain, entities = await self._prepare_text(caption, parse_mode)
+        body, tl_parse_mode = await self._prepare_text(caption, parse_mode)
         tl_message = await translate_errors(
             self._client.edit_message(
                 chat_id,
                 message_id,
-                plain,
-                formatting_entities=entities,
-                parse_mode=None,
+                body,
+                parse_mode=tl_parse_mode,
                 buttons=convert_markup_to_buttons(reply_markup),
             )
         )
@@ -179,7 +168,7 @@ class Bot:
 
     async def edit_message_media(self, chat_id=None, message_id=None, media=None, reply_markup=None, **_ignored) -> Message:
         chat_id = coerce_peer(chat_id)
-        plain, entities = await self._prepare_text(media.caption, media.parse_mode) if media else (None, None)
+        body, tl_parse_mode = await self._prepare_text(media.caption, media.parse_mode) if media else (None, None)
         ext_by_type = {"photo": ".jpg", "video": ".mp4", "animation": ".mp4"}
         default_extension = ext_by_type.get(getattr(media, "type", None), ".jpg")
         file_input = self._resolve_media_input(media.media, default_extension=default_extension) if media else None
@@ -187,10 +176,9 @@ class Bot:
             self._client.edit_message(
                 chat_id,
                 message_id,
-                plain,
+                body,
                 file=file_input,
-                formatting_entities=entities,
-                parse_mode=None,
+                parse_mode=tl_parse_mode,
                 buttons=convert_markup_to_buttons(reply_markup),
             )
         )
@@ -212,6 +200,11 @@ class Bot:
 
             raise BadRequest("Message to copy not found")
         reply_to = message_thread_id
+        # Unlike every other method here, this one legitimately reuses raw
+        # entities: `src.entities` came directly from Telegram itself (on the
+        # message we're copying), not from hand-constructing anything - so
+        # none of the fragility that motivated moving everything else to
+        # HTML applies here.
         if getattr(src, "media", None):
             tl_message = await translate_errors(
                 self._client.send_file(
@@ -266,14 +259,13 @@ class Bot:
         **_ignored,
     ) -> Message:
         chat_id = coerce_peer(chat_id)
-        plain, entities = await self._prepare_text(caption, parse_mode)
+        body, tl_parse_mode = await self._prepare_text(caption, parse_mode)
         tl_message = await translate_errors(
             self._client.send_file(
                 chat_id,
                 file=self._resolve_media_input(photo, default_extension=".jpg"),
-                caption=plain,
-                formatting_entities=entities,
-                parse_mode=None,
+                caption=body,
+                parse_mode=tl_parse_mode,
                 buttons=convert_markup_to_buttons(reply_markup),
                 silent=bool(disable_notification),
                 reply_to=self._reply_target(reply_to_message_id, message_thread_id),
@@ -297,14 +289,13 @@ class Bot:
         **_ignored,
     ) -> Message:
         chat_id = coerce_peer(chat_id)
-        plain, entities = await self._prepare_text(caption, parse_mode)
+        body, tl_parse_mode = await self._prepare_text(caption, parse_mode)
         tl_message = await translate_errors(
             self._client.send_file(
                 chat_id,
                 file=self._resolve_media_input(video, default_extension=".mp4"),
-                caption=plain,
-                formatting_entities=entities,
-                parse_mode=None,
+                caption=body,
+                parse_mode=tl_parse_mode,
                 buttons=convert_markup_to_buttons(reply_markup),
                 silent=bool(disable_notification),
                 reply_to=self._reply_target(reply_to_message_id, message_thread_id),
@@ -329,15 +320,14 @@ class Bot:
         **_ignored,
     ) -> Message:
         chat_id = coerce_peer(chat_id)
-        plain, entities = await self._prepare_text(caption, parse_mode)
+        body, tl_parse_mode = await self._prepare_text(caption, parse_mode)
         is_fresh_upload = isinstance(animation, (bytes, bytearray))
         tl_message = await translate_errors(
             self._client.send_file(
                 chat_id,
                 file=self._resolve_media_input(animation, default_extension=".mp4"),
-                caption=plain,
-                formatting_entities=entities,
-                parse_mode=None,
+                caption=body,
+                parse_mode=tl_parse_mode,
                 buttons=convert_markup_to_buttons(reply_markup),
                 silent=bool(disable_notification),
                 reply_to=self._reply_target(reply_to_message_id, message_thread_id),

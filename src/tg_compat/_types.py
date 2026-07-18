@@ -31,6 +31,38 @@ from .constants import ChatMemberStatus
 logger = logging.getLogger(__name__)
 
 
+# --------------------------------------------------------------------------
+# Access-hash cache (used to make user mentions - InputMessageEntityMentionName
+# construction - more reliable than relying solely on Telethon's own session
+# cache; see _mentions.py for how this gets used).
+# --------------------------------------------------------------------------
+
+_access_hash_cache: dict[int, int] = {}
+
+
+def remember_access_hash(entity) -> None:
+    """
+    Record a user's access_hash, if the given raw Telethon entity carries one
+    (real ``User`` objects do; bare ``PeerUser`` stubs don't). Called from
+    every place in this compat layer that observes a user entity (incoming
+    messages, callback queries, chat member lookups, ...), so that by the
+    time we need to @mention someone, we have the best possible chance of
+    already knowing their access_hash - constructing a mention requires it,
+    and Telegram only hands it to a bot the first time that bot "encounters"
+    the user (a message, a shared chat, ...); this cache is what makes that
+    encounter durable across the whole bot rather than scoped to wherever it
+    happened to occur.
+    """
+    user_id = getattr(entity, "id", None)
+    access_hash = getattr(entity, "access_hash", None)
+    if user_id is not None and access_hash is not None:
+        _access_hash_cache[user_id] = access_hash
+
+
+def get_cached_access_hash(user_id: int):
+    return _access_hash_cache.get(user_id)
+
+
 def coerce_peer(value):
     """
     Business logic throughout this codebase passes chat/user ids as *either*
@@ -93,6 +125,7 @@ class TelegramUser:
     def from_entity(cls, entity, client=None) -> "TelegramUser":
         if entity is None:
             return None
+        remember_access_hash(entity)
         return cls(
             id=entity.id,
             is_bot=bool(getattr(entity, "bot", False)),

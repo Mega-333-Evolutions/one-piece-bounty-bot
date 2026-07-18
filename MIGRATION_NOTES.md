@@ -131,7 +131,8 @@ deploying.
 | `_message.py` | - | `Message`/`Update`/`CallbackQuery`/`InlineQuery` implementations, built from real Telethon events |
 | `_bot.py` | - | The `Bot` class - all 14 `context.bot.*` methods used in the codebase, implemented via Telethon |
 | `_keyboard.py` | - | `InlineKeyboardButton`/`Markup`, `InputMedia*`, `InlineQueryResult*` |
-| `_markdown.py` | - | A MarkdownV2 (Bot API flavor) parser - see below |
+| `_markdown.py` | - | Converts this codebase's MarkdownV2 into HTML for Telethon's own parser - see "Hyperlinks and user mentions" below |
+| `_mentions.py` | - | Pre-resolves user mentions before sending, degrading gracefully to plain text if a user can't be resolved - see below |
 | `_jobqueue.py` | - | `Job`/`JobQueue`, a thin wrapper directly around APScheduler (already a project dependency) |
 | `_errors.py` | - | Translates Telethon/MTProto errors into `telegram.error` equivalents |
 | `_inline.py` | - | Answering inline queries |
@@ -147,38 +148,12 @@ The codebase formats all its text in Bot API's MarkdownV2 dialect (see
 `constants.TG_DEFAULT_PARSE_MODE`, and the `escape_valid_markdown_chars` /
 `escape_invalid_markdown_chars` helpers in `message_service.py`). Telethon
 ships its own markdown dialect with different escaping rules, so feeding
-already-Bot-API-escaped text into Telethon's parser would leave stray
-backslashes visible to users.
-
-`src/tg_compat/_markdown.py` is a from-scratch MarkdownV2 parser that
-converts Bot API's exact dialect (bold, italic, underline, strikethrough,
-spoiler, code, pre blocks, links, `tg://user?id=` mentions, and blockquotes,
-with proper
-UTF-16 offset counting for emoji) directly into Telethon's raw entity
-objects, bypassing Telethon's own parser entirely. This was tested against
-the specific formatting patterns actually used in `resources/phrases_en.py`
-(bold, spoiler, inline code, user mentions).
-
-User mentions (`[name](tg://user?id=X)`, produced by `mention_markdown()`,
-used ~95 times across the codebase) need an extra step: Telegram requires a
-resolved `InputUser` (id + access hash) to send a clickable mention, not just
-a bare user id. `Bot._prepare_text()` resolves this via
-`client.get_input_entity()` for every outgoing message with a mention. This
-should succeed for essentially every real case (anyone the bot is mentioning
-has necessarily messaged it before, so Telethon's session cache has them) -
-if resolution ever fails, the mention degrades gracefully to plain text
-instead of crashing the send. This is the same mechanism PTB used
-(`mention_markdown_v2` produces the exact same `tg://user?id=` MarkdownV2
-syntax under both libraries) - it's not something this conversion changed;
-it just wasn't rendering correctly until the parse_mode fix below.
-
-**Collapsed/expandable quotes:** `resources/phrases_en.py`'s
-`surround_with_expandable_quote()` marks a quote as expandable by ending its
-content in `||` (that's this codebase's own convention, not raw Bot API
-syntax). The parser recognizes that marker, strips it from the visible text,
-and sets Telethon's `MessageEntityBlockquote(collapsed=True)` accordingly -
-so `>`-quoted text ending in `||` renders as a genuine collapsible quote,
-matching whatever `surround_with_expandable_quote()` is used on.
+already-Bot-API-escaped text into Telethon's own markdown parser would leave
+stray backslashes visible to users - `src/tg_compat/_markdown.py` instead
+converts Bot API's exact MarkdownV2 dialect into HTML, and sends with
+`parse_mode='html'`. See "Hyperlinks and user mentions" below for the full
+detail on this (it went through a couple of iterations - that section
+explains the current, working approach and why it replaced an earlier one).
 
 ## Bugs found after the first real deployment (now fixed)
 
@@ -342,72 +317,88 @@ rather than failing the whole send - check your logs for a
 `tg_compat: this Telethon version doesn't support colored buttons` warning
 if colors don't show up; that means it's worth updating Telethon.
 
-## Hyperlinks and user mentions
+## Hyperlinks and user mentions - architectural change
 
-**User mentions already use `MessageEntityMentionName`, not a URL-based
-entity.** `_markdown.py` special-cases `tg://user?id=` links so they always
-become `telethon.tl.types.MessageEntityMentionName` (offset, length,
-user_id) - never `MessageEntityTextUrl`. This was already true before this
-round of fixes; confirmed again directly against the parser:
-```
-[Bharath](tg://user?id=1001484109) -> MessageEntityMentionName(user_id=1001484109)
-```
-`mention_markdown_v2()` in `message_service.py` is unchanged from the
-original PTB code (it's a direct wrapper around the same `mention_markdown()`
-helper both versions use) - this conversion didn't add or change the mention
-mechanism itself. One thing worth knowing regardless of entity type: a
-mention rendered correctly always looks clickable/styled - that's inherent
-to what a "text mention" entity is, in both PTB and here, not specific to
-which underlying entity type is used.
+Two previous rounds of fixes here (sorting entities, normalizing URLs) did
+not resolve reports that hyperlinks still weren't rendering. Rather than
+continue hypothesis-by-hypothesis against the earlier approach - hand-
+constructing raw `telethon.tl.types.MessageEntity*` objects and passing them
+via `formatting_entities=`, bypassing Telethon's own parser entirely - this
+round replaces that approach altogether.
 
-**Plain hyperlinks (`[text](url)`) - two real bugs found and fixed, but I
-want to be upfront about what's confirmed vs. what's a well-justified but
-unverified fix,** since I don't have a live Telegram connection to test
-against:
+**What changed:** `src/tg_compat/_markdown.py` now converts this codebase's
+MarkdownV2 into HTML, and every send/edit call uses `parse_mode='html'`
+instead of hand-built entities. Telethon ships its own HTML parser
+(`telethon/extensions/html.py`) - the same code every other Telethon-based
+bot relies on - which handles the actual entity construction, including the
+access-hash resolution mentions need. This removes an entire class of "did I
+build the exact right binary protocol object" bugs that hand-rolling raw TL
+entities was exposed to, in favor of generating a string (HTML) that's
+trivial to read and verify correctness of directly, and letting mature,
+widely-used library code do the rest.
 
-- **Confirmed bug: entities were sometimes generated out of order.** A link
-  nested inside a blockquote (e.g. `>join the [Support Group](url)`, which
-  is exactly how `JOIN_SUPPORT_GROUP` is built) got its `TextUrl` entity
-  appended to the list *before* the blockquote's own entity, even though
-  the blockquote's offset is numerically earlier - because the parser only
-  knows the blockquote's full extent (and can only emit its entity) after
-  finishing everything nested inside it. Verified directly: for the actual
-  `/start` message text, entities came back as
-  `[TextUrl(offset=135), Blockquote(offset=89)]` - unsorted. Fixed by
-  sorting the final entity list by offset before returning it.
-- **Well-justified but unverified: URLs missing a scheme could be silently
-  rejected.** `get_deeplink()`'s URLs always include `https://`, but a
-  plain configured link like `SUPPORT_GROUP_LINK` depends on being entered
-  correctly in `.env` - if it were ever stored without `https://` (e.g.
-  `t.me/xxx` instead of `https://t.me/xxx`), that's a plausible way for
-  Telegram's servers to silently reject just that one entity while sending
-  the rest of the message fine - which would exactly match "everything
-  else renders, this one link doesn't." Added a normalization step that
-  prepends `https://` to any URL entity that doesn't already have a
-  recognized scheme. This is a real, safe improvement either way, but I
-  can't confirm it was *the* cause of what you saw without seeing your
-  actual configured link value or a live test.
+Every construct maps onto a plain HTML tag: `*bold*` → `<b>`, `_italic_` →
+`<i>`, `__underline__` → `<u>`, `~strike~` → `<s>`, `` `code` `` → `<code>`,
+` ```lang ` blocks → `<pre><code class="language-lang">`, spoilers →
+`<tg-spoiler>`, and `>quoted` blocks → `<blockquote>` (or
+`<blockquote expandable>` for this codebase's `||`-suffixed expandable-quote
+convention). Links and mentions both become `<a href="...">` - a regular
+`https://` URL for links, `tg://user?id=X` for mentions - exactly the
+mechanism confirmed in Telethon's own changelog ("Support
+`<a href="tg://user?id=123">` mentions in HTML parse mode"), and exactly
+the syntax you pointed me to. Nesting (a link inside a blockquote, bold
+inside a link, etc.) falls out naturally from properly nested tags instead
+of needing manual offset/length bookkeeping, which is also what made the
+earlier approach hard to get fully right.
 
-**What I verified and ruled out**, for the "Jolly Pirates" crew-name case
-specifically (a link that is *not* nested in a blockquote, so the ordering
-bug above doesn't apply to it): I reconstructed the exact real message text
-`SHOW_USER_STATUS` produces (same field order: User, Bounty, Pending, Rank,
-Crew, quoted Location) and traced the entity the parser generates for
-`[Jolly Pirates](url)` down to its exact offset and length, double-checked
-using proper UTF-16 code-unit-based extraction (Telegram counts entity
-offsets in UTF-16 units, not Python string indices - a naive check using
-Python slicing gives an off-by-one false positive here because of the
-astral-plane emoji earlier in the message, which is worth knowing in its
-own right if you ever debug this further). The entity that comes out is
-correct: `offset=93, length=13` extracts exactly `"Jolly Pirates"`. I
-traced this entity through `Bot._prepare_text()` and Telethon's own
-`send_file()` source and didn't find anywhere it should get lost. I don't
-have a definitive further explanation for this specific case beyond the two
-fixes above - if "Jolly Pirates" (or any other non-blockquoted link) still
-doesn't render as a link after this build, that's the single most useful
-thing to send back, ideally with confirmation of whether *every* plain
-link fails or just some, since that would meaningfully narrow down what's
-left.
+Tested directly against every construct this codebase actually uses,
+including the full real `SHOW_USER_STATUS` message reconstructed field-for-
+field (mention, bold bounty figures, an emoji-containing rank, a crew
+deeplink, and an expandable-quoted location) - the HTML output is correct
+and, unlike the old entity-offset approach, is something you can just read
+to confirm: `User: <a href="tg://user?id=1001484109">Bharath</a>` /
+`Crew: <a href="https://t.me/OnePieceBot?start=abc123">Jolly Pirates</a>` /
+`<blockquote expandable>Location: Sabaody Archipelago</blockquote>`.
+
+**Mentions specifically - the access-hash problem you flagged is real, and
+now has two layers of defense:**
+
+Constructing a working inline mention requires the sending account to know
+the target user's access_hash, which Telegram only ever provides once the
+bot has "encountered" that user somehow (a message, a shared chat, a
+callback query - an ID alone is never enough; see
+https://docs.telethon.dev/en/stable/concepts/entities.html). This is true
+regardless of markdown vs. HTML vs. raw entities - it's a property of how
+Telegram's API works, not something either parsing approach can bypass.
+Two things now address it:
+
+1. **`src/tg_compat/_types.py` now maintains its own access-hash cache**,
+   fed by `remember_access_hash()` - called from `TelegramUser.from_entity()`,
+   which is the single choke point through which every user entity observed
+   anywhere in this codebase already passes (every incoming message, every
+   callback query, every chat-member lookup). This is a durable, whole-bot
+   cache of every user this bot has ever seen, independent of - and
+   potentially more complete than - relying solely on Telethon's own
+   internal session cache.
+2. **`src/tg_compat/_mentions.py`** scans outgoing text for
+   `[name](tg://user?id=X)` mentions before it's converted to HTML. For each,
+   it checks the cache above first, then falls back to an explicit
+   `get_entity()` call. If the user turns out to be genuinely unresolvable
+   (never encountered by this bot in any capacity), the mention is rewritten
+   from a link into plain `*bold*` text - so the person's name still shows
+   and the rest of the message sends normally, rather than the mention
+   silently failing or (worse) risking the whole send. Verified directly: a
+   resolvable user's mention is left as a working link; an unresolvable
+   one's is rewritten to bold; and a second mention of the same resolvable
+   user reuses the cache without another network call.
+
+This means a mention can still legitimately show as plain text rather than
+a link - not because of a bug, but because Telegram itself has no way to
+let a bot construct a clickable reference to someone it has never actually
+encountered. If that happens for someone you'd expect to be resolvable
+(e.g. they've definitely messaged the bot or share a group with it before),
+that's worth flagging, since it would mean this fallback is triggering more
+broadly than it should.
 
 ## Known limitations / things worth knowing
 
