@@ -29,7 +29,17 @@ from ._types import get_cached_access_hash, remember_access_hash
 
 logger = logging.getLogger(__name__)
 
-_MENTION_RE = re.compile(r"\[([^\]]*)\]\(tg://user\?id=(\d+)\)")
+
+# The "=" is optionally backslash-escaped: message_service.py's
+# escape_invalid_markdown_chars runs over the *whole* outgoing message
+# (including already-built mentions) before this function ever sees the
+# text, and "=" is one of the characters it escapes - so a mention built as
+# "[name](tg://user?id=123)" typically arrives here as
+# "[name](tg://user?id\=123)". Without tolerating that, this regex simply
+# never matched, silently skipping the resolvability check below for every
+# mention (not erroring - just never firing), which meant the bold-text
+# fallback for unresolvable users wasn't actually reachable.
+_MENTION_RE = re.compile(r"\[([^\]]*)\]\(tg://user\?id\\?=(\d+)\)")
 
 
 async def resolve_mentions(client, text: str) -> str:
@@ -38,7 +48,13 @@ async def resolve_mentions(client, text: str) -> str:
     rewrites any unresolvable ones to plain *bold* text. Returns the
     (possibly modified) text, ready for markdown-to-HTML conversion.
     """
-    if text is None or "tg://user?id=" not in text:
+    # Deliberately checks for "tg://user?id" without the trailing "=" - by the
+    # time this runs, message_service.py's escape_invalid_markdown_chars has
+    # already swept the whole message and may have turned "id=" into "id\=".
+    # The regex below handles both forms; this is just the fast-path
+    # early-exit, and checking for "=" here would defeat it the same way the
+    # regex needed fixing above.
+    if text is None or "tg://user?id" not in text:
         return text
 
     matches = list(_MENTION_RE.finditer(text))

@@ -83,6 +83,46 @@ def _find_unescaped(s: str, start: int, token: str) -> int:
     return -1
 
 
+def _unescape(text: str) -> str:
+    """
+    Undo MarkdownV2 backslash-escaping ("\\X" -> "X"), for the few substrings
+    that are taken as a raw slice instead of being run back through
+    _to_html() - a link's URL, and the contents of `code`/```pre``` blocks.
+
+    Real Bot API MarkdownV2 (what PTB sends to Telegram's own server-side
+    parser) unescapes "\\X" to "X" uniformly, wherever it appears in a
+    message - including inside a link's URL and inside code/pre text. But
+    this codebase's escape_invalid_markdown_chars/escape_valid_markdown_chars
+    helpers (src/service/message_service.py) run over whole, already-built
+    messages - deeplinks and all - without excluding text that happens to
+    sit inside a [text](url), `code`, or ```pre``` construct. So a URL like
+    "https://t.me/x" commonly arrives here as "https://t\\.me/x" (the "."
+    got escaped along with the rest of the message), and a deeplink's base64
+    payload commonly picks up an escaped "\\=" from its padding.
+
+    Without this, those literal backslashes were passed straight through:
+    into the href attribute (producing a URL Telegram silently refuses to
+    treat as clickable - the message still sends, the link just isn't a
+    link) for links, and visibly in the rendered text for code/pre. Bold,
+    italic, blockquotes etc. were never affected, since those recurse through
+    _to_html() (which already unescapes via the `ch == "\\"` branch below) -
+    only these raw-slice cases skipped that step.
+    """
+    if "\\" not in text:
+        return text
+    out = []
+    i = 0
+    n = len(text)
+    while i < n:
+        if text[i] == "\\" and i + 1 < n:
+            out.append(text[i + 1])
+            i += 2
+        else:
+            out.append(text[i])
+            i += 1
+    return "".join(out)
+
+
 def _to_html(source: str) -> str:
     """Recursively convert a MarkdownV2-formatted string into HTML."""
     i = 0
@@ -169,11 +209,11 @@ def _to_html(source: str) -> str:
                     block = rest
             if lang:
                 out.append(f'<pre><code class="language-{_escape(lang)}">')
-                out.append(_escape(block))
+                out.append(_escape(_unescape(block)))
                 out.append("</code></pre>")
             else:
                 out.append("<pre>")
-                out.append(_escape(block))
+                out.append(_escape(_unescape(block)))
                 out.append("</pre>")
             i = end + 3
             continue
@@ -188,7 +228,7 @@ def _to_html(source: str) -> str:
                 continue
             code_text = source[i + 1 : end]
             out.append("<code>")
-            out.append(_escape(code_text))
+            out.append(_escape(_unescape(code_text)))
             out.append("</code>")
             i = end + 1
             continue
@@ -197,10 +237,22 @@ def _to_html(source: str) -> str:
         if ch == "[":
             close_bracket = _find_unescaped(source, i + 1, "]")
             if close_bracket != -1 and source[close_bracket + 1 : close_bracket + 2] == "(":
-                close_paren = source.find(")", close_bracket + 2)
+                # Bot API's spec requires ')' and '\' inside the (...) part to be
+                # escaped, so the closing paren must be found the same escape-aware
+                # way as the closing ']' above - a plain .find(")") would stop early
+                # on an escaped "\)" inside the URL.
+                close_paren = _find_unescaped(source, close_bracket + 2, ")")
                 if close_paren != -1:
                     link_text = source[i + 1 : close_bracket]
-                    url = _normalize_url(source[close_bracket + 2 : close_paren])
+                    # Unescape first: the raw slice still carries whatever
+                    # backslashes message_service.py's escape_invalid_markdown_chars
+                    # added when it swept the *whole* message (e.g. "t.me" ->
+                    # "t\.me", a deeplink's base64 padding -> "\="). Real Bot API
+                    # MarkdownV2 unescapes these before treating the result as a URL,
+                    # so this compat layer has to as well - otherwise the href ends
+                    # up with a literal backslash in it and Telegram won't render it
+                    # as a clickable link.
+                    url = _normalize_url(_unescape(source[close_bracket + 2 : close_paren]))
                     out.append(f'<a href="{_html.escape(url, quote=True)}">')
                     out.append(_to_html(link_text))
                     out.append("</a>")

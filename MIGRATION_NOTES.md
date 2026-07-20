@@ -400,6 +400,65 @@ encountered. If that happens for someone you'd expect to be resolvable
 that's worth flagging, since it would mean this fallback is triggering more
 broadly than it should.
 
+## Correction: hyperlinks were still not rendering, and are now actually fixed
+
+Despite the "tested directly... the HTML output is correct" claim in the
+section above, a live deployment showed every hyperlink in the bot -
+Support Group, Global Challenge deeplinks, crew invites, all of it -
+rendering as plain, non-clickable text. Bold text and blockquotes were
+unaffected, which was the key clue that this was link-specific rather than
+a general parsing failure.
+
+**Root cause:** `message_service.py`'s `escape_invalid_markdown_chars()`
+(unchanged from the original PTB codebase) runs over the *entire* outgoing
+message, including any `[text](url)` link already built into it, and
+backslash-escapes `# + - = { } . !` wherever they occur - so
+`[Support Group](https://t.me/OnePieceSupportGroup)` actually reaches
+`_prepare_text` as `[Support Group](https://t\.me/OnePieceSupportGroup)`,
+and a deeplink's base64 payload (routinely ending in `=` padding) picks up
+its own escapes on top of that. Real Bot API MarkdownV2 - what PTB relies
+on, since Telegram's own servers do the parsing - unescapes `\X` to `X`
+uniformly everywhere in a message, including inside a link's URL. That's
+why PTB was never affected: this was never an "escaping is wrong" bug, it
+was this compat layer's reimplementation not replicating that unescaping
+for the one piece of a message it takes as a raw slice (a link's URL, and
+`code`/`pre` content) instead of recursively re-parsing. Every other
+construct recurses through `_to_html()`, which already unescapes correctly.
+
+**Fix:** `_markdown.py` now has an `_unescape()` helper, applied to a
+link's URL before it goes into the `href` attribute (and to `code`/`pre`
+content, which had the identical gap - a code-formatted
+`/challenge 10.000.000` example was showing literal backslashes before
+each period). The closing `)` of a link is now located with the same
+escape-aware scan already used for the closing `]`, rather than a plain
+`str.find(")")`, so a URL containing an escaped `\)` works too.
+
+A second instance of the same gap was in `_mentions.py`: its fast-path
+check (`"tg://user?id=" not in text`) and its matching regex both expected
+an unescaped `=`, so once `id=` became `id\=`, mentions were silently never
+detected - meaning the access-hash resolvability check (and its bold-text
+fallback for unresolvable users, above) never ran for *any* mention. The
+mention still rendered as a link either way (via the `_markdown.py` fix),
+but the fallback safety net for genuinely unresolvable users was quietly
+bypassed rather than protecting anything. Both checks now tolerate the
+escaped form.
+
+**How this was actually verified:** by running the real
+`escape_invalid_markdown_chars` together with the real
+`markdown_v2_to_html`/`resolve_mentions` against realistic message text -
+including a reconstruction of `SHOW_USER_STATUS` with a resolvable mention,
+an unresolvable one, a bold bounty figure, and a crew deeplink - and
+asserting on the resulting HTML, rather than reasoning about the code and
+reading the output for plausibility. That's the difference from the
+previous round: the reasoning about Telethon's HTML parser itself wasn't
+wrong, it just was never actually exercised against what
+`escape_invalid_markdown_chars` really does to a URL. Recommend testing
+against a real bot token before fully trusting this too, for the same
+reason as everything else in this document (no live Telegram/Telethon
+connection in this environment) - though this round's testing at least
+exercises the actual escaping + conversion code paths together, not just
+one in isolation.
+
 ## Known limitations / things worth knowing
 
 A few places where Telethon's model doesn't map 1:1 onto Bot API's, in order
