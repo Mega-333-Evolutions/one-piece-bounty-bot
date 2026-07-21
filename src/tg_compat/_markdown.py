@@ -83,6 +83,72 @@ def _find_unescaped(s: str, start: int, token: str) -> int:
     return -1
 
 
+def _atomic_span_end(s: str, i: int):
+    """
+    If a self-contained, opaque construct starts at s[i] - a ```pre``` block,
+    a `code` span, or a [text](url) link - return the index right after it
+    ends. Otherwise return None, meaning s[i] is just an ordinary character.
+
+    Mirrors the matching branches of _to_html() closely enough to identify
+    the same spans, but only measures their extent rather than converting
+    them - conversion still happens in the normal course of _to_html() once
+    whatever *outer* delimiter search called this has been resolved.
+    """
+    if s[i : i + 3] == "```":
+        end = s.find("```", i + 3)
+        return end + 3 if end != -1 else None
+    if s[i] == "`":
+        end = s.find("`", i + 1)
+        return end + 1 if end != -1 else None
+    if s[i] == "[":
+        close_bracket = _find_unescaped(s, i + 1, "]")
+        if close_bracket != -1 and s[close_bracket + 1 : close_bracket + 2] == "(":
+            close_paren = _find_unescaped(s, close_bracket + 2, ")")
+            if close_paren != -1:
+                return close_paren + 1
+        return None
+    return None
+
+
+def _find_closing_delim(s: str, start: int, delim: str) -> int:
+    """
+    Like _find_unescaped, but treats [text](url), `code`, and ```pre```
+    spans as opaque - a markdown-special character living inside one of
+    those (almost always inside a URL) is never a candidate closing
+    delimiter for whatever *outer* span is being closed here, matching how
+    a real MarkdownV2 parser treats them.
+
+    Without this, a raw, unescaped underscore inside a URL nested in (for
+    example) an italic span reads, to a plain left-to-right scan, exactly
+    like that span's own closing "_" - so this codebase's
+    "_Posted by [u/{}]({author_url}) on [r/{}]({sub_url})_" pattern
+    (reddit_service.py) broke on any Reddit username containing an
+    underscore: the italic span closed early, mid-way through the
+    username's URL, which truncated the link before its own closing ")" -
+    so the link-parsing branch in _to_html() never found one and the whole
+    thing fell back to literal, broken-looking [brackets](and parens) in
+    the sent message, with the swallowed "_" visibly missing from the
+    leaked URL text (Telegram then auto-linkified that leaked plain-text
+    URL on its own, which is what made it look like *some* kind of working
+    link despite being neither the intended link nor the intended text).
+    """
+    i = start
+    n = len(s)
+    dlen = len(delim)
+    while i < n:
+        if s[i] == "\\":
+            i += 2
+            continue
+        if s[i : i + dlen] == delim:
+            return i
+        skip_to = _atomic_span_end(s, i)
+        if skip_to is not None:
+            i = skip_to
+            continue
+        i += 1
+    return -1
+
+
 def _unescape(text: str) -> str:
     """
     Undo MarkdownV2 backslash-escaping ("\\X" -> "X"), for the few substrings
@@ -139,7 +205,7 @@ def _to_html(source: str) -> str:
         """
         nonlocal i
         closing = closing or delim
-        end = _find_unescaped(source, i + len(delim), closing)
+        end = _find_closing_delim(source, i + len(delim), closing)
         if end == -1:
             return False
         inner = source[i + len(delim) : end]

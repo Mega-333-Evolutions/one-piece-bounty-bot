@@ -459,6 +459,70 @@ connection in this environment) - though this round's testing at least
 exercises the actual escaping + conversion code paths together, not just
 one in isolation.
 
+## Second correction: a link nested inside bold/italic/etc. could lose its URL entirely
+
+Reported as: a Reddit repost's attribution line showed the poster's u/username
+correctly (underscore intact) as the link *text*, but the underlying link
+*target* was missing the underscore - and, more generally, any link nested
+inside this codebase's `_..._`-wrapped caption lines (see
+`reddit_service.py`'s `"_Posted by [u/{}]({}) on [r/{}]({})_"`) could fail to
+render as a link at all, leaking raw `[brackets](and parens)` into the sent
+message instead.
+
+**Root cause:** `reddit_service.py` builds `author_url` by concatenating a
+prefix with `post.author.name` - Reddit's own username, never escaped,
+because escaping it would corrupt the URL. That's correct as far as it
+goes. The problem is what the URL sits next to: the whole line is wrapped
+in `_..._` for italics, and `_to_html()`'s delimiter search
+(`_find_unescaped`, used by `consume_wrapped`) was a plain left-to-right
+scan for the next unescaped `_` - with no awareness that it might be
+scanning *through* a URL nested inside that italic span. A username like
+"Ok_Direction3138" put a raw, unescaped `_` right in the middle of the URL,
+and the scan latched onto that as the italic span's closing delimiter -
+truncating it mid-URL. The link's own closing `)` was now past the point
+where parsing had already stopped looking, so the link-forming branch never
+found one, and the truncated fragment fell back to literal, broken-looking
+markdown syntax. The swallowed `_` (consumed as a delimiter, the same way
+the asterisks around `*bold*` never appear in the rendered output) is
+exactly why the leaked URL text was missing its underscore - and the
+"link" the report describes seeing was Telegram's own plain-text
+URL auto-detection picking up that leaked fragment, not the compat layer
+producing a real link entity.
+
+This is a different mechanism from the first correction above (that one was
+about characters *inside* a URL being wrongly escaped; this one is about a
+raw character inside a URL being read as formatting syntax for something
+entirely unrelated to that URL) - both happen to involve a link's URL, but
+neither fix stands in for the other.
+
+**Fix:** added `_atomic_span_end()`, which recognizes a
+`[text](url)`/`` `code` ``/```` ```pre``` ```` construct starting at a given
+position and returns where it ends without interpreting its interior, and
+`_find_closing_delim()`, which uses it to skip over such constructs whole
+while scanning for an outer delimiter - the same way a real MarkdownV2
+parser treats them as opaque rather than rescanning their contents.
+`consume_wrapped()` (bold/italic/underline/strikethrough/spoiler) now uses
+`_find_closing_delim()` instead of the plain scan. Verified directly against
+the real `CREW_JOIN_REQUEST_CAPTION` template too (an italic line wrapping
+two more `[Captain]/[First Mate]` deeplinks), plus constructed cases with a
+link-in-bold and a link-in-underline, and two genuinely separate italic
+spans in one message (to confirm the new skip logic doesn't over-skip when
+there's nothing to skip).
+
+**Audit for the same failure mode elsewhere:** grepped for every place a URL
+is built by concatenating a prefix with free-form dynamic text (as opposed
+to `get_deeplink()`'s own base64-encoded-JSON URLs, whose alphabet can't
+contain `_`/`*`/`~`/etc. and so was never at risk here) - `reddit_service.py`
+is the only place that does this; Reddit is also the only external content
+source in the codebase (no Twitter/Instagram/YouTube integration to check).
+Everywhere else that puts dynamic text in a link's *display* text (crew
+names via `Crew.get_name_escaped()`, item names, etc.) already runs it
+through `escape_valid_markdown_chars()` first, which was always sufficient
+on its own regardless of this bug - an escaped `\_` was never a candidate
+delimiter match even before this fix. The gap was specifically "raw,
+unescaped dynamic text in a URL, nested inside outer formatting," and
+`reddit_service.py` was the only place with both halves of that.
+
 ## Known limitations / things worth knowing
 
 A few places where Telethon's model doesn't map 1:1 onto Bot API's, in order
