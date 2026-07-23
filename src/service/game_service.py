@@ -54,7 +54,7 @@ from src.service.message_service import (
     get_deeplink,
 )
 from src.service.notification_service import send_notification
-from src.service.language_service import set_current_language
+from src.service.language_service import get_current_language, set_current_language
 from src.utils.context_utils import (
     get_bot_context_data,
     set_bot_context_data,

@@ -166,4 +166,22 @@ def convert_markup_to_buttons(reply_markup: InlineKeyboardMarkup):
             style = extra.get("api_kwargs", {}).get("style") or extra.get("style")
             new_row.append(_with_style(tl_button, style))
         rows.append(new_row)
+
+    # An InlineKeyboardMarkup with no rows (or only empty rows) is a
+    # meaningful, common "no keyboard" case upstream, not a malformed one:
+    # get_keyboard() in message_service.py builds one unconditionally
+    # whenever `keyboard is not None`, even when the caller explicitly
+    # passed keyboard=[] - e.g. every end_text_based_game() call for a
+    # global game, where game.is_global() means there's no "go to message
+    # in group" button to add, so outbound_keyboard stays []. PTB's real
+    # Bot API silently treats an empty inline_keyboard array as no markup
+    # at all, but passing a non-None, empty buttons=[] to Telethon builds
+    # an actual (if empty) ReplyInlineMarkup, which Telegram's raw MTProto
+    # layer rejects outright as invalid reply markup - unlike the Bot API,
+    # which normalizes this away before it gets that far. Returning None
+    # here instead - "no reply markup" - is what an empty keyboard always
+    # meant anyway.
+    if not any(rows):
+        return None
+
     return rows

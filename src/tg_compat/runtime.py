@@ -9,6 +9,7 @@ for the top-level wiring.
 
 import asyncio
 import logging
+import signal
 
 from telethon import TelegramClient, events
 
@@ -229,4 +230,42 @@ class Application:
             await self._client.catch_up()
 
         logger.info(f"Bot connected as @{me.username} (id={me.id})")
+
+        # python-telegram-bot's own run_polling()/run_webhook() install signal
+        # handlers - by default for SIGINT, SIGTERM, and SIGABRT on non-Windows
+        # platforms - that stop the Application cleanly (log a message and
+        # return) rather than letting the interpreter's default
+        # SIGINT-to-KeyboardInterrupt behavior run its course. Without an
+        # equivalent here, any of those three signals - from Ctrl+C, or from
+        # whatever is supervising this process (a plain `systemctl stop` on a
+        # VPS, a container runtime stopping/restarting the container, a
+        # process manager, etc. - the mechanism is the same regardless of
+        # where this is hosted) - instead hit asyncio.run()'s own default
+        # handling: cancel the running task, wait for the CancelledError to
+        # propagate up through run_until_disconnected() and this coroutine,
+        # then re-raise the original KeyboardInterrupt - which is exactly the
+        # "CancelledError, then during handling of that, KeyboardInterrupt"
+        # traceback this produced.
+        #
+        # Handling the signal directly avoids that path entirely: disconnect()
+        # resolves client.disconnected on its own, so run_until_disconnected()
+        # below returns normally - no cancellation, no traceback.
+        loop = asyncio.get_running_loop()
+
+        def _request_shutdown(sig_name: str):
+            logger.info(f"Received {sig_name}, shutting down...")
+            self.create_task(self._client.disconnect(), name="shutdown-disconnect")
+
+        for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGABRT):
+            try:
+                loop.add_signal_handler(sig, _request_shutdown, sig.name)
+            except NotImplementedError:
+                # add_signal_handler is POSIX-only (e.g. unavailable on the
+                # default Windows event loop, which is the same limitation
+                # PTB itself documents for its own stop_signals) - falls back
+                # to the interpreter's default KeyboardInterrupt behavior
+                # there, same as before this change.
+                pass
+
         await self._client.run_until_disconnected()
+        logger.info("Bot stopped.")

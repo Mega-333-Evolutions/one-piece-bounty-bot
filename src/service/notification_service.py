@@ -152,9 +152,23 @@ async def send_notification_execute(
         pass
     except TimedOut:  # Transient network timeout - notification will be missed but bot stays alive
         logging.warning(f"Timed out sending notification to user {user.id}")
-    except BadRequest as e: # Trying to send a DM to another bot
-        if "bot_to_bot" in str(e).lower():
+    except BadRequest as e:
+        message = str(e).lower()
+        if "bot_to_bot" in message:  # Trying to send a DM to another bot
             pass
+        elif "cannot start conversations" in message or "invalid peer" in message:
+            # Telethon-specific: this user has never been "encountered" by
+            # this bot session (no message, shared chat, callback query,
+            # etc. since - see _types.py's access-hash cache and
+            # ensure_resolvable_peer() for the two things this codebase
+            # already does to make that encounter as likely as possible
+            # before giving up). PTB never had this failure mode at all -
+            # Bot API lets a bot message anyone who's ever /start-ed it,
+            # indefinitely, with no equivalent "peer" concept to invalidate
+            # - so there's no existing case to fold this into; it's another
+            # legitimate, non-fatal "can't reach this recipient" outcome,
+            # same as the two above it.
+            logging.info(f"Cannot resolve peer for user {user.id}, skipping notification: {e}")
         else:
             raise e
 

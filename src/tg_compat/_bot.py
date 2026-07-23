@@ -32,6 +32,7 @@ from ._types import (
     decode_media_ref,
     _get_chat_member,
     coerce_peer,
+    ensure_resolvable_peer,
 )
 from ._message import Message, answer_callback_query as _answer_callback_query
 
@@ -88,6 +89,16 @@ class Bot:
     def _reply_target(reply_to_message_id, message_thread_id):
         return reply_to_message_id if reply_to_message_id is not None else message_thread_id
 
+    async def _warm_user_peer(self, chat_id):
+        """Call before sending a brand-new message, right after
+        coerce_peer(). Only user ids need this - group/channel ids are
+        negative in this codebase's Bot-API-style numbering, and the bot
+        already resolves those fine via its own group/channel membership,
+        so this deliberately only fires for the "DMing a user by ID" case
+        (e.g. notifications) where PeerIdInvalidError actually shows up."""
+        if isinstance(chat_id, int) and chat_id > 0:
+            await ensure_resolvable_peer(self._client, chat_id)
+
     # -- messages -----------------------------------------------------------
 
     async def send_message(
@@ -105,6 +116,7 @@ class Bot:
         **_ignored,
     ) -> Message:
         chat_id = coerce_peer(chat_id)
+        await self._warm_user_peer(chat_id)
         body, tl_parse_mode = await self._prepare_text(text, parse_mode)
         tl_message = await translate_errors(
             self._client.send_message(
@@ -193,6 +205,7 @@ class Bot:
         self, chat_id, from_chat_id, message_id, message_thread_id=None, disable_notification=None, **_ignored
     ) -> Message:
         chat_id = coerce_peer(chat_id)
+        await self._warm_user_peer(chat_id)
         from_chat_id = coerce_peer(from_chat_id)
         src = await translate_errors(self._client.get_messages(from_chat_id, ids=message_id))
         if src is None:
@@ -259,6 +272,7 @@ class Bot:
         **_ignored,
     ) -> Message:
         chat_id = coerce_peer(chat_id)
+        await self._warm_user_peer(chat_id)
         body, tl_parse_mode = await self._prepare_text(caption, parse_mode)
         tl_message = await translate_errors(
             self._client.send_file(
@@ -289,6 +303,7 @@ class Bot:
         **_ignored,
     ) -> Message:
         chat_id = coerce_peer(chat_id)
+        await self._warm_user_peer(chat_id)
         body, tl_parse_mode = await self._prepare_text(caption, parse_mode)
         tl_message = await translate_errors(
             self._client.send_file(
@@ -320,6 +335,7 @@ class Bot:
         **_ignored,
     ) -> Message:
         chat_id = coerce_peer(chat_id)
+        await self._warm_user_peer(chat_id)
         body, tl_parse_mode = await self._prepare_text(caption, parse_mode)
         is_fresh_upload = isinstance(animation, (bytes, bytearray))
         tl_message = await translate_errors(

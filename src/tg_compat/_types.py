@@ -63,6 +63,37 @@ def get_cached_access_hash(user_id: int):
     return _access_hash_cache.get(user_id)
 
 
+async def ensure_resolvable_peer(client, user_id: int) -> None:
+    """
+    Best-effort warm-up before sending a brand-new message directly to a
+    user by ID - e.g. notification_service.py's proactive notifications,
+    which aren't a reply to anything the user just did. Mirrors
+    _mentions.py's resolve_mentions (cache check, then a live get_entity()
+    fallback that also populates the cache for next time), just for "send
+    to this user" instead of "reference this user inside message text".
+
+    Deliberately swallows every exception here: this is purely a
+    best-effort attempt to warm the cache before the real send, not a
+    resolvability gate. A mention can gracefully degrade to plain bold
+    text when a user turns out to be unresolvable; a message send can't -
+    there's nothing to degrade *to*. So if this lookup fails, it's left to
+    the send call right after it to raise its own, already-correctly-typed
+    error (translate_errors turns Telethon's PeerIdInvalidError into this
+    codebase's own BadRequest, which callers already know how to handle -
+    see notification_service.py's send_notification_execute) rather than
+    this raising a *different*, un-typed exception (e.g. a bare ValueError
+    from get_entity() finding nothing locally) that those existing
+    handlers wouldn't recognize.
+    """
+    if get_cached_access_hash(user_id) is not None:
+        return
+    try:
+        entity = await client.get_entity(user_id)
+        remember_access_hash(entity)
+    except Exception:
+        pass
+
+
 def coerce_peer(value):
     """
     Business logic throughout this codebase passes chat/user ids as *either*

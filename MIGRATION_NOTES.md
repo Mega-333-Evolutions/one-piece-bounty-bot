@@ -523,6 +523,143 @@ delimiter match even before this fix. The gap was specifically "raw,
 unescaped dynamic text in a URL, nested inside outer formatting," and
 `reddit_service.py` was the only place with both halves of that.
 
+## Ctrl+C / SIGTERM produced a raw traceback instead of shutting down cleanly
+
+Reported as: pressing Ctrl+C printed a `CancelledError` from
+`runtime.py`'s `run()` (at `await self._client.run_until_disconnected()`),
+immediately followed by "During handling of the above exception, another
+exception occurred" and a re-raised `KeyboardInterrupt` from
+`asyncio/runners.py`.
+
+**Root cause:** PTB's own `run_polling()`/`run_webhook()` install signal
+handlers - by default for `SIGINT`, `SIGTERM`, and `SIGABRT` on non-Windows
+platforms, per its own documentation - that stop the `Application` cleanly
+(log a message, stop, return) - this codebase's `main.py`/`runtime.py` had
+no equivalent, so Ctrl+C fell through to `asyncio.run()`'s own default
+handling instead: on `KeyboardInterrupt`, it cancels the running task,
+waits for that cancellation to finish propagating (the `CancelledError`
+half of the traceback), and then re-raises the original
+`KeyboardInterrupt` (the second half) once the task has actually stopped -
+undocumented as a "bug" anywhere, it's just `asyncio.run()`'s documented
+behavior, with nothing in this codebase catching it. Confirmed this was
+the exact mechanism by reproducing an identical-shaped
+`CancelledError`-into-`KeyboardInterrupt` traceback with a minimal
+stand-in client and a real, self-delivered `SIGINT` - and separately
+confirmed that `SIGTERM` (sent by whatever is supervising the process -
+`systemctl stop` on a plain VPS, a container platform stopping/restarting
+the container, etc. - the signal and the gap are identical regardless of
+where this runs) was actually worse: Python has no default handler for it
+at all, so the process was killed immediately with no graceful shutdown
+opportunity whatsoever, not even a traceback.
+
+**Fix:** `Application.run()` (`src/tg_compat/runtime.py`) now installs
+handlers for `SIGINT`, `SIGTERM`, and `SIGABRT` via
+`loop.add_signal_handler()` before awaiting `run_until_disconnected()` -
+the same three signals, via the same mechanism, that PTB's own
+`stop_signals` default handles (PTB's docs note the identical
+`add_signal_handler`-not-implemented-on-Windows limitation too, which is
+why this keeps the same `NotImplementedError` fallback). All three call
+`client.disconnect()` (via the existing `create_task` tracking, so it
+can't be garbage-collected mid-call) rather than doing nothing and letting
+the signal fall through to Python's default behavior - `disconnect()`
+resolves `client.disconnected` on its own (confirmed directly from this
+bug report's own traceback, which showed `_run_until_disconnected` as
+literally `await self.disconnected` in the installed Telethon version), so
+`run_until_disconnected()` then returns normally with no cancellation
+involved, and `run()` logs a clean "Bot stopped." instead. `main.py` also
+keeps a `try/except KeyboardInterrupt` around the top-level
+`asyncio.run(async_main())` as a fallback, for a signal arriving before
+those handlers are registered (e.g. mid-`client.start()`) or on a platform
+where `add_signal_handler` isn't available (it's POSIX-only).
+
+**How this was verified:** by actually sending real `SIGINT`, `SIGTERM`,
+and `SIGABRT` (via `os.kill` on itself, not a simulated call) to a minimal
+stand-in process built around the exact same shape this report's
+traceback revealed about the real client, both before and after the fix -
+confirming the unfixed version reproduces the identical `CancelledError`-
+into-`KeyboardInterrupt` traceback (for `SIGINT`) and an instant, ungraceful kill
+with exit code 143 (for `SIGTERM`), and the fixed version exits 0 with a
+clean "Received SIG.../Bot stopped." log and no traceback either way.
+
+## Three bugs from live production logs: a missing import, an empty keyboard, and unresolvable notification recipients
+
+**`NameError: name 'get_current_language' is not defined`** in
+`game_service.py`'s `end_text_based_game`. Plain missing import, dropped
+during the PTB-to-Telethon migration: `game_service.py` imported only
+`set_current_language`, not `get_current_language`, from
+`language_service.py` (which is itself unchanged/identical between both
+versions - this was purely an import-list mistake, not a logic gap).
+Checked every other call site of `get_current_language()` in the codebase;
+all of them already import it correctly, so this was the one place it got
+dropped. Fixed by restoring the import.
+
+**`ReplyMarkupInvalidError: The provided reply markup is invalid`** from
+`end_text_based_game` sending a global game's result message.
+`get_keyboard()` in `message_service.py` unconditionally builds
+`InlineKeyboardMarkup(keyboard_list)` whenever its `keyboard` argument
+isn't `None` - including when it's an empty list, which is exactly what
+`end_text_based_game` passes for a global game (`game.is_global()` means
+there's no "go to message in group" button to add, so
+`outbound_keyboard` stays `[]`). PTB/real Telegram's Bot API silently
+treats an empty `inline_keyboard` array as no markup at all, but
+`_keyboard.py`'s `convert_markup_to_buttons()` was turning that into an
+actual, empty `buttons=[]` list handed to Telethon - which builds a real
+(if empty) `ReplyInlineMarkup` for a non-`None`, non-empty-vs-missing
+argument, and Telegram's raw MTProto layer rejects that outright, unlike
+the Bot API layer which normalizes it away first. Fixed by having
+`convert_markup_to_buttons()` return `None` whenever the result would have
+no actual buttons in it (covers both an empty top-level list and a
+markup whose rows are all individually empty). Verified directly: an
+`InlineKeyboardMarkup([])` and an `InlineKeyboardMarkup([[]])` both now
+convert to `None`; a normal one-button markup is unaffected.
+
+**`PeerIdInvalidError` / `"bots cannot start conversations"`** from
+`notification_service.py` sending a proactive notification. This one
+isn't really a bug so much as a real architectural gap between the two
+libraries, the same shape as the access-hash problem already documented
+above for mentions - just hitting a different code path. Bot API lets a
+bot message any user who has ever `/start`-ed it, indefinitely, with no
+extra requirement; MTProto (what Telethon actually speaks) requires the
+sending account to already have that specific user's access_hash, which
+Telegram only ever provides once the bot has "encountered" them somehow
+since the current session was established. A user who interacted with the
+bot before this migration (or just hasn't messaged it again since) can be
+a perfectly valid, long-time user - sitting right there in this
+codebase's own database - and still be unreachable by direct send, purely
+because Telethon's session has never independently observed their entity.
+There is no way to retroactively obtain an access_hash for such a user;
+this is a hard protocol constraint, not a missing feature.
+
+Two changes, matching the two things already done for the mention case:
+1. **`_types.py` gained `ensure_resolvable_peer()`**, mirroring
+   `resolve_mentions()`'s cache-then-`get_entity()` pattern, called from
+   every "new message to a user" method in `_bot.py`
+   (`send_message`/`send_photo`/`send_video`/`send_animation`/
+   `copy_message`, gated on the chat_id being a positive int - group/channel
+   ids are negative in this codebase's numbering and don't have this
+   problem, since the bot resolves those via its own membership) right
+   after `coerce_peer()`. Unlike the mention case, there's no graceful
+   in-message fallback for a message send, so this deliberately swallows
+   every exception - it's a best-effort cache warm-up before the real
+   send, not a gate, and the actual send raises its own correctly-typed
+   error regardless of whether this ran.
+2. **`notification_service.py`'s existing `except BadRequest` handler**
+   (which already tolerated `bot_to_bot` sends as a non-fatal, expected
+   outcome) now also tolerates this - logging and moving on instead of
+   crashing the background task - since it belongs in exactly the same
+   category: a legitimate reason a specific recipient can't be reached
+   right now, not a bug to surface as an unhandled exception. Verified the
+   classification logic directly against the real error string from this
+   report's own traceback.
+
+If notifications to specific long-time users keep failing this way, that's
+this protocol constraint doing exactly what it's documented to do, not a
+regression - the same as an unresolvable mention correctly falling back to
+bold text isn't a bug either. The only real mitigation available is the one
+already in place: the more places in the codebase a user's entity gets
+observed (which happens automatically any time they interact with the bot
+again), the more of them stay reachable for future proactive sends.
+
 ## Known limitations / things worth knowing
 
 A few places where Telethon's model doesn't map 1:1 onto Bot API's, in order

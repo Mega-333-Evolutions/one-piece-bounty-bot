@@ -129,7 +129,16 @@ def main() -> None:
             ],
         )
 
-    asyncio.run(async_main())
+    try:
+        asyncio.run(async_main())
+    except KeyboardInterrupt:
+        # Should be rare in practice now that Application.run() installs its
+        # own SIGINT/SIGTERM/SIGABRT handlers for a clean shutdown - this is
+        # just a fallback for a signal arriving before those handlers are
+        # registered (e.g. while still inside client.start()), so Ctrl+C
+        # never surfaces a raw CancelledError/KeyboardInterrupt traceback
+        # either way.
+        logging.getLogger(__name__).info("Interrupted, exiting.")
 
 
 if __name__ == "__main__":
