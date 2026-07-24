@@ -187,7 +187,25 @@ class Application:
             message = None
             if tl_message is not None:
                 try:
-                    message = await Message.from_telethon(tl_message, client, self.bot, fetch_reply=False)
+                    # Deliberately using from_telethon's default (fetch_reply=True)
+                    # here, not the fetch_reply=False the "we just sent this"
+                    # methods in _bot.py use: manage_message.py re-validates
+                    # command.only_in_reply (and allow_self_reply) against
+                    # update.effective_message.reply_to_message on *every*
+                    # update for that command - including the callback query
+                    # from pressing a Yes/No confirmation button, whose
+                    # "effective_message" is the confirmation message, not the
+                    # original command. In a group chat, that confirmation was
+                    # itself sent as a reply to the original .gift/.loan/etc.
+                    # command (full_message_send's quote_if_group default) -
+                    # so with reply_to_message actually populated, the
+                    # original reply chain is still there to validate against
+                    # on confirm; with fetch_reply=False it was always None
+                    # regardless of the real reply chain, so command.only_in_reply
+                    # rejected every confirmation for every such command with
+                    # "This command can only be used in a reply to a message",
+                    # even though the command *was* used correctly.
+                    message = await Message.from_telethon(tl_message, client, self.bot)
                 except Exception:
                     logger.exception("tg_compat: failed to build Message for callback query")
 

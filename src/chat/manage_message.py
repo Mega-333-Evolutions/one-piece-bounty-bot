@@ -321,7 +321,15 @@ async def manage_after_db(
                         command_name = start_parameter
                 else:
                     command_name = (update.message.text.split(" ")[0])[1:].lower()
-                    command_name = command_name.replace("@" + Env.BOT_USERNAME.get(), "")
+                    # .lower() above already lowercased everything, including
+                    # any "@BotUsername" suffix - so this strip has to compare
+                    # against a lowercased copy of the username too, or it
+                    # silently fails to match whenever the registered username
+                    # has any uppercase letters (the normal case for Telegram
+                    # usernames, e.g. "OnePiece_BountyBot") and a command was
+                    # sent as "/command@BotUsername" - which then fails to
+                    # match any known command name and is just ignored.
+                    command_name = command_name.replace("@" + Env.BOT_USERNAME.get().lower(), "")
 
                 if keyboard is None:
                     if command_name.strip() != "":

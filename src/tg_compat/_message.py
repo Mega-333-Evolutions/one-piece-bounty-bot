@@ -268,6 +268,23 @@ class Message:
         if isinstance(action, (MessageActionChatAddUser,)):
             members = []
             for uid in action.users:
+                if bot is not None and bot.id is not None and uid == bot.id:
+                    # The bot's own identity never needs resolving - it's
+                    # already known from get_me() at startup (runtime.py).
+                    # Looking it up via get_entity() instead is not just
+                    # unnecessary but risky here specifically: this chat may
+                    # have no prior history with the bot at all (it was
+                    # *just* added), and a fresh, first-ever-seen entity in a
+                    # ChatAction event is exactly the kind of lookup that can
+                    # come back as a "min" user (no usable access_hash) or
+                    # fail outright - silently dropping the bot out of
+                    # new_chat_members below, which is what made
+                    # get_added_or_removed_from_group_event() (in
+                    # group_chat_manager.py) unable to tell the bot had just
+                    # been added, so it never sent its usual "thanks for
+                    # adding me" group setup message.
+                    members.append(TelegramUser(id=bot.id, is_bot=True, username=bot.username))
+                    continue
                 try:
                     entity = await client.get_entity(uid)
                     members.append(TelegramUser.from_entity(entity, client))
