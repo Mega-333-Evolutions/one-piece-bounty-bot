@@ -627,8 +627,16 @@ async def validate(
 
                 raise CommandValidationException(text)
 
-        # Can only be used in reply to a message
-        if command.only_in_reply:
+        # Can only be used in reply to a message - gated to the original
+        # command message only (and not is_callback), matching the same,
+        # already-established pattern the allow_reply_to_bot check just
+        # below this one uses for the same reason: whether a command was
+        # used in reply is a fact about how it was originally invoked, not
+        # something to keep re-deriving from every later update tied to it -
+        # e.g. the callback query from pressing a Yes/No confirmation
+        # button, whose own "message" is the confirmation prompt, not the
+        # original command.
+        if command.only_in_reply and not is_callback:
             try:
                 if (
                     not _message_is_reply or update.message.reply_to_message is None

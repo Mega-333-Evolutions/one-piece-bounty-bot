@@ -258,6 +258,23 @@ class Message:
             from_user = TelegramUser.from_entity(sender_entity, client) if sender_entity else None
         except Exception:
             from_user = None
+        if from_user is None and getattr(event, "sender_id", None) is not None:
+            # get_sender() resolves the *full* entity over the network, which
+            # can fail for someone the bot has no prior history with - e.g.
+            # whoever just added it to a brand new group, if this is their
+            # first-ever interaction with it in any capacity (the same
+            # "fresh, first-seen entity" rough edge as the bot's own identity
+            # fix above, just for the other side of the same event).
+            # event.sender_id, unlike get_sender(), is a local property with
+            # no network call involved - so falling back to a minimal
+            # TelegramUser built from just that id keeps
+            # update.effective_user usable (id is all downstream code - the
+            # authorized-user check and the User DB lookup for
+            # "thanks for adding me" in screen_settings_features.py - needs)
+            # instead of leaving it None, which is what silently produced an
+            # empty authorized_users list and crashed on
+            # get_keyboard()'s delete-button check.
+            from_user = TelegramUser(id=event.sender_id)
 
         new_chat_members = None
         left_chat_member = None

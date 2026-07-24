@@ -780,6 +780,75 @@ safe way to construct a fallback without already knowing the chat's type
 the two given Telethon needs that info just to know which chat an update
 even belongs to.
 
+## "Thanks for adding me" progressed further, then hit a new crash: "No authorized users provided for delete button"
+
+The bot-added-to-group fix above got the welcome-message flow actually
+running (confirmed by the traceback showing `screen_settings_features.py`
+being reached, which wasn't happening before) - but it now crashed one
+step further in, in `get_keyboard()`'s validation that a delete button
+must have at least one authorized user.
+
+**Root cause:** the same fresh-entity fragility as the bot's own identity
+fix above, just for the *other* side of that event. `get_keyboard()`
+defaults `authorized_users` to whoever triggered the current update
+(`update.effective_user`) when no explicit list is passed - which is what
+`screen_settings_features.py` relies on here. But `effective_user` for
+this event depends on `from_chat_action` resolving the *sender* of the
+`MessageActionChatAddUser` action - the admin who did the adding - via
+`event.get_sender()`, a full, network-resolved entity lookup. If that
+admin has no prior history with the bot either (plausible - whoever adds
+a bot to a *new* group isn't necessarily someone who's messaged it
+directly before), that resolution can fail the same way, leaving
+`from_user` (and so `effective_user`) as `None` - and everywhere that
+lookup failure was already caught by a blanket `except Exception: pass`,
+so it never crashed there, it just silently produced an empty
+`authorized_users` list two layers away.
+
+**Fix:** fall back to `event.sender_id` when full resolution fails -
+confirmed via Telethon's own docs that, unlike `get_sender()`, this is a
+local property with no network call involved, so it's available
+regardless of whether the full entity is. A minimal `TelegramUser` built
+from just that id is enough for everything downstream actually needs (the
+id, not a display name). Verified in isolation: `effective_user` is never
+`None` now even when full resolution is made to fail outright, and the
+normal case (resolution succeeds) is unaffected.
+
+## The only_in_reply check now runs once, not on every update for a command
+
+Per explicit request: rather than making the callback-query re-check of
+`command.only_in_reply` keep working reliably (the previous fix, above),
+skip the re-check entirely - a command's reply-validity is a fact about
+how it was originally invoked, not something to keep re-deriving from
+every later update tied to it.
+
+Turns out there was already a precedent for exactly this, one check below
+it: `allow_reply_to_bot` already has `and not is_callback` in its
+condition, under the same `REPLY_TO_MESSAGE_BUG_FIX` comment - this looks
+like the same fix, just never finished being applied to the check right
+above it. `only_in_reply` now has the identical `and not is_callback`
+added to match.
+
+The earlier fix (making `fetch_reply` actually populate
+`reply_to_message` for callback queries) stays - it's not made redundant
+by this, since `allow_self_reply`'s check a few lines down still reads
+`reply_to_message` on every update, callbacks included, with no
+`is_callback` gate of its own.
+
+Since `manage_message.py` is shared, unchanged code, this applies equally
+well on the PTB side - not fixing a bug there (PTB's `reply_to_message`
+was always populated correctly), just removing a redundant re-check that
+never had any reason to run twice in the first place.
+
+## Note: "Server closed the connection: [Errno 104] Connection reset by peer"
+
+This is Telethon's own logger (`telethon.network.connection.connection`),
+not an exception from this codebase, and nothing crashed after it in the
+logs that prompted this section - normal, periodic connection resets from
+Telegram's servers are expected over a long-running connection, and
+reconnecting from them is something Telethon already handles on its own.
+Not treating this as something to fix; flagging it here so it's not
+mistaken for an unaddressed item next time these logs come up.
+
 ## Known limitations / things worth knowing
 
 A few places where Telethon's model doesn't map 1:1 onto Bot API's, in order
