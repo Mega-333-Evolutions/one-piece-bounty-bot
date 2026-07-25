@@ -106,12 +106,22 @@ async def manage(
     thanks_text = phrases.THANKS_FOR_ADDING_TO_GROUP if added_to_group else ""
     ot_text = phrases.GRP_TXT_FEATURES.format(thanks_text, get_group_or_topic_text(group_chat))
 
+    # add_delete_button relies on update.effective_user being resolvable (it's
+    # what get_keyboard() falls back to authorizing when no explicit
+    # authorized_users is passed, which is the case here). That's always true
+    # under PTB, but not guaranteed here when this is reached via a group-join
+    # ChatAction event rather than a regular message - see MIGRATION_NOTES.md.
+    # Sending the group's setup message at all matters far more than this one
+    # convenience button, so degrade to no delete button rather than let an
+    # unresolvable user prevent the message from sending altogether.
+    can_add_delete_button = update.effective_user is not None
+
     await full_message_send(
         context,
         ot_text,
         update=update,
         keyboard=outbound_keyboard,
-        add_delete_button=True,
+        add_delete_button=can_add_delete_button,
         use_close_delete=True,
         inbound_keyboard=inbound_keyboard,
         should_auto_delete=False,

@@ -258,6 +258,23 @@ class Message:
             from_user = TelegramUser.from_entity(sender_entity, client) if sender_entity else None
         except Exception:
             from_user = None
+        if from_user is None:
+            # get_sender() is Telethon's generic "who sent this message"
+            # resolution. get_added_by(), when this action is specifically
+            # a user being added, is Telethon's own purpose-built method for
+            # this exact question instead - it may succeed via a different
+            # internal strategy than get_sender() does (e.g. for plain,
+            # non-supergroup chats, where a service message's own sender
+            # isn't necessarily populated the same way a regular message's
+            # is), so it's worth trying even after get_sender() has failed.
+            try:
+                get_added_by = getattr(event, "get_added_by", None)
+                if get_added_by is not None:
+                    added_by_entity = await get_added_by()
+                    if added_by_entity is not None:
+                        from_user = TelegramUser.from_entity(added_by_entity, client)
+            except Exception:
+                pass
         if from_user is None and getattr(event, "sender_id", None) is not None:
             # get_sender() resolves the *full* entity over the network, which
             # can fail for someone the bot has no prior history with - e.g.

@@ -849,6 +849,47 @@ reconnecting from them is something Telethon already handles on its own.
 Not treating this as something to fix; flagging it here so it's not
 mistaken for an unaddressed item next time these logs come up.
 
+## "No authorized users" again after the previous fix - this needed a different kind of fix, not another guess
+
+The previous entry's fix (falling back to `event.sender_id`) did not resolve
+this in practice - the exact same crash recurred after deploying it. Worth
+being honest about that rather than describing this as confirmed-fixed
+again, the same way the previous entry already had to walk back the one
+before it.
+
+Two changes this time, for two different reasons:
+
+**Better resolution, on a best-effort basis:** added `event.get_added_by()`
+as another attempt between the existing `get_sender()` and `sender_id`
+fallbacks. This is Telethon's own purpose-built method for "who added this
+user" specifically (confirmed from Telethon's own docs, not assumed) -
+distinct from the generic `get_sender()`, and worth trying because it may
+succeed via an internal strategy `get_sender()` doesn't use, particularly
+for plain (non-supergroup) chats where a service message's sender isn't
+necessarily populated the same way a regular message's is. This still isn't
+verified against a live connection, so treat it the same way as the
+previous attempt: plausible, not confirmed.
+
+**A fix that doesn't depend on any of that working:** this is the actual
+reason to expect this resolved now. `screen_settings_features.py` no
+longer unconditionally asks for a delete button - it only does when
+`update.effective_user` actually resolved to something, and skips the
+button entirely otherwise. `get_keyboard()`'s authorized-users check can
+only ever fire when a delete button was requested in the first place, so
+this makes the crash structurally impossible for this message regardless
+of whether entity resolution behaves the way the paragraph above expects
+it to. Confirmed directly against `get_keyboard()`'s own validation code
+that `add_delete_button=False` cannot raise this exception no matter what
+`authorized_users` contains, and that the same code does raise it under
+the old unconditional `True` - so this isn't a no-op change standing in
+for a real fix, it removes the failure mode's only trigger.
+
+Net effect: the group setup message should now send either way - with a
+delete/close button when whoever added the bot could be identified, without
+one when they couldn't. If it's still not sending after this, the crash
+has moved somewhere other than this specific exception, and the next logs
+would need to show a different error for that to be diagnosable.
+
 ## Known limitations / things worth knowing
 
 A few places where Telethon's model doesn't map 1:1 onto Bot API's, in order
