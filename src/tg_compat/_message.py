@@ -258,6 +258,40 @@ class Message:
             from_user = TelegramUser.from_entity(sender_entity, client) if sender_entity else None
         except Exception:
             from_user = None
+        if from_user is None:
+            # get_sender() is Telethon's generic "who sent this message"
+            # resolution. get_added_by(), when this action is specifically
+            # a user being added, is Telethon's own purpose-built method for
+            # this exact question instead - it may succeed via a different
+            # internal strategy than get_sender() does (e.g. for plain,
+            # non-supergroup chats, where a service message's own sender
+            # isn't necessarily populated the same way a regular message's
+            # is), so it's worth trying even after get_sender() has failed.
+            try:
+                get_added_by = getattr(event, "get_added_by", None)
+                if get_added_by is not None:
+                    added_by_entity = await get_added_by()
+                    if added_by_entity is not None:
+                        from_user = TelegramUser.from_entity(added_by_entity, client)
+            except Exception:
+                pass
+        if from_user is None and getattr(event, "sender_id", None) is not None:
+            # get_sender() resolves the *full* entity over the network, which
+            # can fail for someone the bot has no prior history with - e.g.
+            # whoever just added it to a brand new group, if this is their
+            # first-ever interaction with it in any capacity (the same
+            # "fresh, first-seen entity" rough edge as the bot's own identity
+            # fix above, just for the other side of the same event).
+            # event.sender_id, unlike get_sender(), is a local property with
+            # no network call involved - so falling back to a minimal
+            # TelegramUser built from just that id keeps
+            # update.effective_user usable (id is all downstream code - the
+            # authorized-user check and the User DB lookup for
+            # "thanks for adding me" in screen_settings_features.py - needs)
+            # instead of leaving it None, which is what silently produced an
+            # empty authorized_users list and crashed on
+            # get_keyboard()'s delete-button check.
+            from_user = TelegramUser(id=event.sender_id)
 
         new_chat_members = None
         left_chat_member = None
@@ -268,6 +302,23 @@ class Message:
         if isinstance(action, (MessageActionChatAddUser,)):
             members = []
             for uid in action.users:
+                if bot is not None and bot.id is not None and uid == bot.id:
+                    # The bot's own identity never needs resolving - it's
+                    # already known from get_me() at startup (runtime.py).
+                    # Looking it up via get_entity() instead is not just
+                    # unnecessary but risky here specifically: this chat may
+                    # have no prior history with the bot at all (it was
+                    # *just* added), and a fresh, first-ever-seen entity in a
+                    # ChatAction event is exactly the kind of lookup that can
+                    # come back as a "min" user (no usable access_hash) or
+                    # fail outright - silently dropping the bot out of
+                    # new_chat_members below, which is what made
+                    # get_added_or_removed_from_group_event() (in
+                    # group_chat_manager.py) unable to tell the bot had just
+                    # been added, so it never sent its usual "thanks for
+                    # adding me" group setup message.
+                    members.append(TelegramUser(id=bot.id, is_bot=True, username=bot.username))
+                    continue
                 try:
                     entity = await client.get_entity(uid)
                     members.append(TelegramUser.from_entity(entity, client))

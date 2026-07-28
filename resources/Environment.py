@@ -561,7 +561,7 @@ BOUNTY_POSTER_LIMIT_ROOKIE = Environment("BOUNTY_POSTER_LIMIT_ROOKIE", default_v
 # How many crew entries should be shown in the leaderboard. Default: 5
 LEADERBOARD_CREW_LIMIT = Environment("LEADERBOARD_CREW_LIMIT", default_value="5")
 # How many active users are required to create a local leaderboard. Default: 20
-LEADERBOARD_MIN_ACTIVE_USERS = Environment("LEADERBOARD_MIN_ACTIVE_USERS", default_value="20")
+LEADERBOARD_MIN_ACTIVE_USERS = Environment("LEADERBOARD_MIN_ACTIVE_USERS", default_value="10")
 
 # DOC Q
 # How much bounty is required to play the Doc Q game. Default: 10,000,000

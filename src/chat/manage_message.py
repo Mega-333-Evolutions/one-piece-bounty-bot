@@ -183,6 +183,7 @@ async def manage(update: Update, context: ContextTypes.DEFAULT_TYPE, is_callback
         logging.error(e, exc_info=True)
         # For functions called asynchronously, since the full stacktrace is not printed
         logging.error(traceback.format_stack())
+        await context.bot.report_error(f"Error handling update:\n{update}\n\n{traceback.format_exc()}")
     finally:
         end(db)
 
@@ -321,7 +322,15 @@ async def manage_after_db(
                         command_name = start_parameter
                 else:
                     command_name = (update.message.text.split(" ")[0])[1:].lower()
-                    command_name = command_name.replace("@" + Env.BOT_USERNAME.get(), "")
+                    # .lower() above already lowercased everything, including
+                    # any "@BotUsername" suffix - so this strip has to compare
+                    # against a lowercased copy of the username too, or it
+                    # silently fails to match whenever the registered username
+                    # has any uppercase letters (the normal case for Telegram
+                    # usernames, e.g. "OnePiece_BountyBot") and a command was
+                    # sent as "/command@BotUsername" - which then fails to
+                    # match any known command name and is just ignored.
+                    command_name = command_name.replace("@" + Env.BOT_USERNAME.get().lower(), "")
 
                 if keyboard is None:
                     if command_name.strip() != "":
@@ -619,8 +628,16 @@ async def validate(
 
                 raise CommandValidationException(text)
 
-        # Can only be used in reply to a message
-        if command.only_in_reply:
+        # Can only be used in reply to a message - gated to the original
+        # command message only (and not is_callback), matching the same,
+        # already-established pattern the allow_reply_to_bot check just
+        # below this one uses for the same reason: whether a command was
+        # used in reply is a fact about how it was originally invoked, not
+        # something to keep re-deriving from every later update tied to it -
+        # e.g. the callback query from pressing a Yes/No confirmation
+        # button, whose own "message" is the confirmation prompt, not the
+        # original command.
+        if command.only_in_reply and not is_callback:
             try:
                 if (
                     not _message_is_reply or update.message.reply_to_message is None

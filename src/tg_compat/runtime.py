@@ -10,6 +10,7 @@ for the top-level wiring.
 import asyncio
 import logging
 import signal
+import traceback
 
 from telethon import TelegramClient, events
 
@@ -17,6 +18,7 @@ from ._bot import Bot
 from ._message import Message, CallbackQuery, InlineQuery, Update
 from ._types import TelegramUser
 from ._jobqueue import JobQueue
+from .error import BadRequest
 
 logger = logging.getLogger(__name__)
 
@@ -118,8 +120,33 @@ class Application:
         async def _wrapped():
             try:
                 await coro
+            except BadRequest as e:
+                message = str(e).lower()
+                if "cannot start conversations" in message or "invalid peer" in message:
+                    # Same condition notification_service.py's
+                    # send_notification_execute already treats as expected and
+                    # non-fatal (see MIGRATION_NOTES.md) - the recipient
+                    # hasn't been "encountered" by this bot session in any
+                    # capacity Telethon can resolve a peer from, which real
+                    # Bot API/PTB never had as a failure mode at all. This
+                    # codebase has dozens of other places that also fire a
+                    # message to a specific user as a background task (game
+                    # results, location-change DMs, etc.) without their own
+                    # try/except for this - rather than adding one to each
+                    # individually, this generic wrapper (which every
+                    # create_task() call already funnels through) is the one
+                    # place that can catch all of them consistently.
+                    logger.info(f"Background task {name or '<unnamed>'}: recipient unreachable, skipping ({e})")
+                else:
+                    logger.exception(f"Unhandled exception in background task {name or '<unnamed>'}")
+                    await self.bot.report_error(
+                        f"Unhandled exception in background task {name or '<unnamed>'}:\n\n{traceback.format_exc()}"
+                    )
             except Exception:
                 logger.exception(f"Unhandled exception in background task {name or '<unnamed>'}")
+                await self.bot.report_error(
+                    f"Unhandled exception in background task {name or '<unnamed>'}:\n\n{traceback.format_exc()}"
+                )
 
         task = asyncio.ensure_future(_wrapped())
         self._background_tasks.add(task)
@@ -147,6 +174,7 @@ class Application:
                 message = await Message.from_telethon(event.message, client, self.bot)
             except Exception:
                 logger.exception("tg_compat: failed to build Message from NewMessage event")
+                await self.bot.report_error(f"tg_compat: failed to build Message from NewMessage event:\n\n{traceback.format_exc()}")
                 return
 
             update = Update(message=message, _bot=self.bot)
@@ -166,6 +194,7 @@ class Application:
                 message = await Message.from_chat_action(event, client, self.bot)
             except Exception:
                 logger.exception("tg_compat: failed to build Message from ChatAction event")
+                await self.bot.report_error(f"tg_compat: failed to build Message from ChatAction event:\n\n{traceback.format_exc()}")
                 return
             update = Update(message=message, _bot=self.bot)
             context = self.new_context(update=update)
@@ -187,9 +216,28 @@ class Application:
             message = None
             if tl_message is not None:
                 try:
-                    message = await Message.from_telethon(tl_message, client, self.bot, fetch_reply=False)
+                    # Deliberately using from_telethon's default (fetch_reply=True)
+                    # here, not the fetch_reply=False the "we just sent this"
+                    # methods in _bot.py use: manage_message.py re-validates
+                    # command.only_in_reply (and allow_self_reply) against
+                    # update.effective_message.reply_to_message on *every*
+                    # update for that command - including the callback query
+                    # from pressing a Yes/No confirmation button, whose
+                    # "effective_message" is the confirmation message, not the
+                    # original command. In a group chat, that confirmation was
+                    # itself sent as a reply to the original .gift/.loan/etc.
+                    # command (full_message_send's quote_if_group default) -
+                    # so with reply_to_message actually populated, the
+                    # original reply chain is still there to validate against
+                    # on confirm; with fetch_reply=False it was always None
+                    # regardless of the real reply chain, so command.only_in_reply
+                    # rejected every confirmation for every such command with
+                    # "This command can only be used in a reply to a message",
+                    # even though the command *was* used correctly.
+                    message = await Message.from_telethon(tl_message, client, self.bot)
                 except Exception:
                     logger.exception("tg_compat: failed to build Message for callback query")
+                    await self.bot.report_error(f"tg_compat: failed to build Message for callback query:\n\n{traceback.format_exc()}")
 
             sender = await event.get_sender()
             from_user = TelegramUser.from_entity(sender, client)
