@@ -1,4 +1,4 @@
-# Migration notes: python-telegram-bot &rarr; Telethon
+# Migration notes: python-telegram-bot &rarr Telethon
 
 This codebase has been fully converted from `python-telegram-bot` (PTB) to
 [Telethon](https://docs.telethon.dev/). `python-telegram-bot` is no longer a
