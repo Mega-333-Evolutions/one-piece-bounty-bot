@@ -183,6 +183,7 @@ async def manage(update: Update, context: ContextTypes.DEFAULT_TYPE, is_callback
         logging.error(e, exc_info=True)
         # For functions called asynchronously, since the full stacktrace is not printed
         logging.error(traceback.format_stack())
+        await context.bot.report_error(f"Error handling update:\n{update}\n\n{traceback.format_exc()}")
     finally:
         end(db)
 

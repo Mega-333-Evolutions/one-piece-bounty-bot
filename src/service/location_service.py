@@ -46,9 +46,26 @@ async def update_location(
     if region is not None or new_location.level > user.location_level or can_scale_down:
         effective_location: Location = new_location
 
-        # Cap the location level to Paradise max
+        # Cap the location level to Paradise max. Checking "not already in New
+        # World" here, rather than "currently in Paradise", matters for a
+        # fresh account: location_level defaults to 0 in the database, which
+        # is the special ND ("None") location - neither Paradise nor New
+        # World. If such an account's bounty (e.g. from a gift, or an admin
+        # grant, before ever triggering a location update through normal,
+        # incremental play) already corresponds to a New World location the
+        # first time this runs, is_paradise_by_level(0) is False (ND isn't
+        # Paradise), so the old condition never triggered the cap at all -
+        # the location updated straight to the New World location it
+        # deserved, with no confirmation shown, in one uncapped jump.
+        # is_new_world_by_level(0) is also correctly False (ND isn't New
+        # World either), so inverting the check this way still requires the
+        # cap for that case while leaving every other transition unchanged:
+        # Paradise -> Paradise and ND -> Paradise still don't cap (correct,
+        # ordinary progression), Paradise -> New World still does (unchanged
+        # from before), and New World -> deeper New World still doesn't
+        # (already past the boundary, free to keep moving).
         if region is Region.PARADISE or (
-            Location.is_paradise_by_level(user.location_level)
+            not Location.is_new_world_by_level(user.location_level)
             and Location.is_new_world_by_level(new_location.level)
             and cap_to_paradise
         ):

@@ -36,6 +36,8 @@ from ._types import (
 )
 from ._message import Message, answer_callback_query as _answer_callback_query
 
+import resources.Environment as Env
+
 logger = logging.getLogger(__name__)
 
 
@@ -53,6 +55,69 @@ class Bot:
         self._client = client
         self.id = bot_user_id
         self.username = bot_username
+
+    # -- error reporting ----------------------------------------------------
+
+    async def report_error(self, text: str) -> None:
+        """
+        Best-effort, last-resort error reporter: sends `text` (typically a
+        traceback) to Env.ERROR_LOG_CHAT_ID as one or more MarkdownV2 code
+        blocks (```python ... ```), so Telegram renders it with syntax
+        highlighting and a one-tap copy button instead of as plain text.
+
+        No truncation: text longer than fits in one message is split across
+        as many messages as it takes, on line boundaries, so nothing gets
+        cut off - getting the complete traceback through matters more here
+        than fitting it in a single message.
+
+        Deliberately self-contained rather than reusing message_service.py's
+        log_error() (which needs a full context/update object and pulls in
+        the whole markdown pipeline): this needs to work from low-level
+        places that don't have either on hand - the generic background-task
+        wrapper in runtime.py, the job-queue runner in _jobqueue.py - not
+        just the top-level per-update handler in manage_message.py that
+        already has both. And it must never itself raise: a failure while
+        reporting an error could otherwise mask the original exception, or
+        crash whatever's already in the middle of handling one.
+        """
+        chat_id = Env.ERROR_LOG_CHAT_ID.get()
+        if chat_id is None:
+            return
+
+        # Telegram's message length limit is 4096 characters. Leave headroom
+        # for the ```python\n / \n``` fence (~14 characters) and for
+        # backslash/backtick escaping potentially adding a character each
+        # (see below) - and split on line boundaries so a line is never cut
+        # mid-way through.
+        max_chunk = 3800
+        chunks = []
+        current: list[str] = []
+        current_len = 0
+        for line in text.split("\n"):
+            # +1 accounts for the newline that will join this line to the next
+            if current and current_len + len(line) + 1 > max_chunk:
+                chunks.append("\n".join(current))
+                current = []
+                current_len = 0
+            current.append(line)
+            current_len += len(line) + 1
+        if current:
+            chunks.append("\n".join(current))
+
+        for chunk in chunks:
+            # Inside a MarkdownV2 pre/code block, only '\' and '`' need
+            # escaping (per Bot API's spec) - escape backslashes first, or
+            # the backslashes just added to escape backticks would
+            # themselves get re-escaped.
+            escaped = chunk.replace("\\", "\\\\").replace("`", "\\`")
+            try:
+                await self.send_message(
+                    chat_id=chat_id,
+                    text=f"```python\n{escaped}\n```",
+                    parse_mode="MarkdownV2",
+                )
+            except Exception:
+                logger.exception("Failed to report error to ERROR_LOG_CHAT_ID")
 
     # -- text preparation -------------------------------------------------
 

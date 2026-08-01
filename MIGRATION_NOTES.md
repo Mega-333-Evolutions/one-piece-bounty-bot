@@ -890,6 +890,281 @@ one when they couldn't. If it's still not sending after this, the crash
 has moved somewhere other than this specific exception, and the next logs
 would need to show a different error for that to be diagnosable.
 
+## Unresolvable-peer crashes were only handled for notifications - generalized to every background task
+
+A new unhandled `PeerIdInvalidError`/`BadRequest` crash showed up from a
+`full_message_send` call that wasn't going through
+`notification_service.py`'s `send_notification_execute` - meaning it didn't
+benefit from that function's existing tolerance for this condition. A
+search turned up dozens of other places in this codebase that also fire a
+message to a specific user as a background task
+(`context.application.create_task(...)`) - game results, location-change
+DMs, etc. - none of which have their own handling for this.
+
+Rather than patching each one individually, the fix went into
+`runtime.py`'s `create_task()` wrapper itself - the one place every one of
+those calls already funnels through. It now recognizes the same
+"cannot start conversations"/"invalid peer" condition as benign and logs
+it at info level, consistent with how `notification_service.py` already
+treats it, instead of logging every occurrence as a scary unhandled
+exception. Genuinely unexpected exceptions are unaffected - still logged
+in full, as before.
+
+## Local leaderboards regressed to the exact pattern PTB's history already moved away from
+
+Reported as: local leaderboards not sending in groups (falling back to
+showing global ranks instead), despite the feature being enabled and the
+group having enough active players.
+
+**Root cause:** confirmed directly against PTB's source - `leaderboard_service.py`
+is not shared code between the two versions (unusual for this codebase; almost
+everything else is), and it had genuinely diverged. PTB sends local
+leaderboards to each group *sequentially*, one at a time, awaited, wrapped
+in its own try/except - with a comment explaining this replaced an earlier
+approach that spawned a concurrent task per group, which held every
+group's leaderboard data (DB results, formatted images, pending Telegram
+requests) in memory simultaneously and caused a RAM spike severe enough to
+get the whole process killed. The Telethon version had exactly that
+earlier, abandoned approach - firing all groups as concurrent
+`create_task()` calls with no error handling of their own.
+
+This lines up with the reported symptom well: the global leaderboard sends
+first, synchronously, and completes before the concurrent local burst even
+starts - so it always goes out. If that burst is what's crashing the
+process (matching PTB's own documented history for this exact pattern),
+every local leaderboard silently never arrives, and whatever a group falls
+back to showing in its place would naturally look like "global ranks
+instead."
+
+**Fix:** replaced the Telethon version's loop with PTB's exact sequential
+version, comment included. `leaderboard_service.py` is now identical
+between both codebases apart from the usual import lines.
+
+## Two other reports investigated - found to be shared code working as designed, not Telethon-specific bugs
+
+**Sabaody location DM sent alongside the New World move confirmation:**
+traced the full decision path (`location_service.py`'s `update_location()`,
+`screen_change_region.py`'s `send_proposal()`, `notification_service.py`'s
+`send_notification()`, and the `/reward` screen that triggers all of it) -
+every one of these files is identical between PTB and Telethon, including
+the exact conditions that decide whether to send the location-reached
+notification versus the New World proposal. I couldn't find a compat-layer
+difference that would explain PTB and Telethon behaving differently here
+given genuinely identical logic. Two things worth checking on your end
+that wouldn't be a code bug at all: whether `SEND_MESSAGE_LOCATION_UPDATE`
+is set the same way in both deployments' environments, and whether the
+specific test account has a different DM history with the PTB bot token
+versus the Telethon bot token (they're presumably separate bot accounts,
+so "has this player ever DMed *this specific* bot" can genuinely differ
+between them even for the same person) - either would produce exactly this
+kind of difference without any code being at fault. Flagging this rather
+than guessing at a fix for code that's already identical between both
+versions.
+
+**Errors not appearing in `ERROR_LOG_CHAT_ID`:** checked this against PTB
+directly rather than assume - forwarding to the error log chat
+(`log_error()` in `message_service.py`) is called from exactly one place
+in *both* codebases (`devil_fruit_service.py`), identically. The specific
+example raised (the reddit image resize retry) was never wired to forward
+in either version - it's a local, handled-retry diagnostic log, unrelated
+to `log_error()`. Nor does the top-level exception handler in
+`manage_message.py` (which catches essentially all command-processing
+errors) call `log_error()` in either version - it only logs locally. So
+this is accurately described as "the bot barely forwards anything to the
+error log chat," but that's how the codebase has always worked in PTB too,
+not something the migration changed. If the actual want is broader
+error-log-chat coverage, that's a real, worthwhile feature to add - just a
+different kind of task than "fix a Telethon regression," and one that
+would change PTB's behavior too since the relevant code is shared.
+
+## Local leaderboards: reverted back to concurrent sending, by explicit request
+
+The sequential-sending fix two entries up (restoring PTB's approach, added
+because of the RAM-spike/OOM-kill history PTB's own comment describes) was
+explicitly reverted back to concurrent `create_task()` calls per direct
+request - this is now an intentional, deliberate divergence from PTB, not
+an oversight. If the OOM issue resurfaces, this is the first place to look;
+PTB's sequential version (with its explanatory comment) is still sitting
+in the PTB codebase unchanged if reverting back is ever wanted again.
+
+Also lowered `LEADERBOARD_MIN_ACTIVE_USERS`'s default from 20 to 10 (also
+explicit) - PTB's default is unchanged at 20, so this is now an
+intentional difference between the two as well, not just this file's
+sending strategy.
+
+## New feature: all errors now forward to ERROR_LOG_CHAT_ID, not just the one devil-fruit case
+
+**Follow-up refinement, same feature:** `report_error()` now sends as one or
+more MarkdownV2 code blocks (```` ```python ... ``` ````) instead of plain
+text, so Telegram renders it with syntax highlighting and a one-tap copy
+button. And it no longer truncates - long text is split across as many
+messages as it takes (on line boundaries, so a line is never cut mid-way),
+so the complete traceback always gets through regardless of length.
+
+Escaping is minimal by design: inside a MarkdownV2 code block, only `\` and
+`` ` `` need escaping (per Bot API's own spec) - so `report_error()` escapes
+just those two, per chunk, before wrapping it in the fence. Verified this
+directly against the real `markdown_v2_to_html()` converter: a traceback
+containing literal backslashes and backticks round-trips exactly, and
+regular code content with underscores/asterisks (e.g. `player_language`,
+`a*b`) renders as plain text inside the block rather than being
+misinterpreted as italic/bold - confirming code blocks are treated as
+literal content, not reprocessed as further markdown, exactly as intended.
+Also verified a ~20,000-character traceback splits into multiple chunks
+with the full content reproduced exactly when reassembled - nothing lost
+to the old truncation.
+
+Explicit request, and an explicit divergence from PTB (which only ever
+forwarded that one specific error) - this Telethon bot now forwards every
+unhandled exception it catches, with the full traceback, not just that one
+case.
+
+Added `Bot.report_error(text)` in `_bot.py`: sends `text` straight to
+`Env.ERROR_LOG_CHAT_ID` as plain text (`parse_mode=None` - arbitrary
+traceback content should never go through markdown/HTML parsing, which
+could itself fail on unpredictable characters in the error text), never
+raises itself (a failure while reporting an error shouldn't mask the
+original one or crash whatever's already mid-failure), and truncates to
+Telegram's message-length limit by keeping the *end* of long text, since
+that's where the actually-relevant stack frame is.
+
+Deliberately doesn't reuse `message_service.py`'s existing `log_error()`
+(the one PTB-shared function that already forwards the devil-fruit case) -
+that needs a full `context`/`update` and pulls in the whole markdown
+pipeline, which several of the places below don't have or don't want for
+raw traceback text. Left `log_error()` and its one existing call site
+alone; `report_error()` is a separate, parallel path.
+
+Wired into every place in the Telethon-specific layer that was catching
+exceptions and only logging them locally:
+- `manage_message.py`'s top-level per-update handler (catches essentially
+  all command/message-processing errors)
+- `runtime.py`'s `create_task()` wrapper (every background "fire and
+  forget" task - game results, notifications, etc.)
+- `runtime.py`'s three event handlers' own `except` blocks, for when
+  building the compat `Message` object itself fails (`NewMessage`,
+  `ChatAction`, and the callback-query handler)
+- `_jobqueue.py`'s job runner (every scheduled APScheduler job) and
+  `Job.run()` (manually-triggered jobs)
+
+Not wired in: genuinely expected, non-fatal conditions that already get
+their own quieter handling on purpose - the peer-resolution-failed case in
+`create_task()`'s wrapper (logged at info level, not treated as an error at
+all - see above), and anywhere already deliberately catching a *specific*
+exception type to degrade gracefully (`Forbidden`, `bot_to_bot`, etc. in
+`notification_service.py`) rather than treat it as unexpected.
+
+A literal Python `SyntaxError` at import time (before the bot can connect
+to Telegram at all) obviously can't be forwarded this way - there's no
+bot connection yet for it to send through - so "all kinds of errors" here
+means everything that can happen once the bot is actually running.
+
+Verified `report_error()`'s properties directly: no-op when
+`ERROR_LOG_CHAT_ID` isn't set, truncates long text while preserving the
+end, and never raises even when the underlying send itself fails.
+
+## Correction: the New World cap/confirmation WAS broken - just not for the reason first suspected
+
+An earlier round of investigation (mentions of "PTB doesn't DM about
+reaching Sabaody" a few entries back) traced this same general area,
+concluded the shared cap-and-propose logic was correct, and even verified
+that conclusion by simulating a Paradise -> deep-New-World jump in
+isolation - which did cap correctly. That simulation just tested the wrong
+starting condition. A screenshot of the real bot skipping the confirmation
+outright (straight to "You are now on Fish-Man Island", no prompt) made
+clear something was still wrong, and the user's own guess - "something to
+do with the location before claiming the reward" - pointed at the right
+place.
+
+**Actual root cause:** `location_level` defaults to `0` in the database
+(`SmallIntegerField(default=0)`) for any account that has never had a
+location assigned through normal play. Level `0` isn't undefined, though -
+it's a real, defined location: `ND = Location(0, "None", Region.ND, 0, "")`
+- literally named "None", which is exactly what the `/status` screenshot
+showed for this account before the fateful `/reward`. `Region.ND` is a
+*third* region, distinct from both `Region.PARADISE` and
+`Region.NEW_WORLD`.
+
+The cap condition only checked `is_paradise_by_level(user.location_level)`
+- true for an account already somewhere in Paradise, but false for one
+still at ND, since `Region.ND != Region.PARADISE`. So an account whose
+bounty reaches New World tier before its location has ever been set even
+once (a gift, an admin grant, or - as in this whole conversation - a lot
+of rapid test-bounty changes, all before the first `/reward` or command
+that triggers a location check) skips the cap entirely: `is_paradise_by_level(0)`
+is `False`, the whole condition is `False`, and `effective_location` stays
+the raw, uncapped, straight-to-New-World location with no confirmation
+ever shown - exactly the screenshot.
+
+**Fix:** changed the condition to check `not is_new_world_by_level(user.location_level)`
+instead of `is_paradise_by_level(...)` - "not already in New World" covers
+both starting states (ND and Paradise) that should still cap on the way
+into New World, while leaving already-New-World accounts free to keep
+moving without re-triggering it. `is_new_world_by_level(0)` is also
+correctly `False` (ND isn't New World either), so this doesn't
+inadvertently cap accounts that are already progressing normally.
+
+**Verified two ways:** first with simulated data across all five relevant
+transitions (ND->Paradise, ND->New World, Paradise->Paradise,
+Paradise->New World, New World->deeper New World) to confirm no
+regressions - then directly against the real `Location.py` module and its
+real data (with the minimal env vars needed just to import it), confirming
+`ND.name` is literally `"None"`, `get_last_paradise()` returns Sabaody
+Archipelago at level 20, Fish-Man Island is level 21 in `Region.NEW_WORLD`,
+and the exact old-vs-new condition evaluates to `False`/`True`
+respectively for this exact scenario using the bot's own real data, not
+stand-ins.
+
+This is shared, unchanged code (`location_service.py` and `Location.py`
+are both identical to PTB), so it's a pre-existing gap, not something the
+migration introduced - and it doesn't depend on which chat type the
+triggering command came from, so it applies the same way in groups as in
+DMs.
+
+## Reddit job crashing on a transient Reddit API error (HTTP 500)
+
+This one is different in kind from everything else in this document: the
+traceback (`asyncprawcore.exceptions.ServerError: received 500 HTTP
+response`, from `async for post in hot_posts:` in `reddit_service.py`) is
+Reddit's own servers having a momentary problem, not a bug in this
+codebase - nothing here talks to Telethon or PTB at all, it's the
+`reddit_post_one_piece`/`reddit_post_meme_piece` timer fetching posts via
+`asyncpraw`. The fact that this surfaced as a clean, readable traceback in
+the error log chat rather than silently vanishing is the new error-reporting
+feature (a few entries up) working as intended, for a different, unrelated
+kind of error than it was built for.
+
+**Fix:** wrapped the one call site (`timer_service.py`'s dispatch of
+`Timer.REDDIT_POST_ONE_PIECE`/`REDDIT_POST_MEME_PIECE` - confirmed the only
+caller of `reddit_service.py`'s `manage()`, imported there as
+`send_reddit_post`) in a try/except for
+`asyncprawcore.exceptions.AsyncPrawcoreException` - the base class covering
+both `RequestException` (network/connection-level issues) and
+`ResponseException` and its subclasses like `ServerError` (HTTP error
+responses of any status). Logs a warning and moves on instead of raising -
+the next scheduled run of the same timer just tries again, which is
+already how APScheduler jobs behave here every few minutes/hours. Chose
+this call site specifically (rather than wrapping the fetch loop inside
+`reddit_service.py` itself, which would need re-indenting ~130 lines for
+the same effect) since it's the only place this function is ever invoked
+from, so the two are equivalent in what they protect.
+
+**On verification:** couldn't pip-install `asyncpraw`/`asyncprawcore` in
+this environment to test directly (repeated attempts returned "no matching
+distribution found" even for the base package, seemingly a sandbox/network
+issue rather than anything about these specific packages, which are
+ordinary, actively-maintained PyPI packages). Confirmed the exception
+class and hierarchy via two independent sources instead: the official
+asyncpraw FAQ documentation, which names
+`asyncprawcore.AsyncPrawcoreException` directly as the base to catch, and
+the actual `asyncprawcore/exceptions.py` source, whose `ResponseException.__init__`
+formats its message as `f"received {response.status_code} HTTP response"` -
+matching the reported traceback's text exactly, which is what gives this
+confidence despite not being able to execute it directly. Also verified the
+try/except control-flow logic itself (catches the right category, doesn't
+swallow an unrelated exception type) against a simulation built from that
+same confirmed hierarchy.
+
 ## Known limitations / things worth knowing
 
 A few places where Telethon's model doesn't map 1:1 onto Bot API's, in order

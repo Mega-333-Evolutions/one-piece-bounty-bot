@@ -10,6 +10,7 @@ an intermediate Telegram-specific abstraction.
 
 import datetime
 import logging
+import traceback
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
@@ -52,6 +53,7 @@ class Job:
             await self._callback(context)
         except Exception:
             logger.exception(f"Error running job {self.name}")
+            await context.bot.report_error(f"Error running job {self.name}:\n\n{traceback.format_exc()}")
 
 
 class JobQueue:
@@ -77,6 +79,7 @@ class JobQueue:
             except Exception:
                 name = job_holder[0].name if job_holder[0] else "<unknown>"
                 logger.exception(f"Error running job {name}")
+                await context.bot.report_error(f"Error running job {name}:\n\n{traceback.format_exc()}")
 
         return _runner
 

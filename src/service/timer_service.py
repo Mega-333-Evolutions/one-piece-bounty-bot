@@ -1,6 +1,7 @@
 import logging
 from datetime import datetime
 
+import asyncprawcore.exceptions
 from apscheduler.triggers.cron import CronTrigger
 from src.tg_compat.ext import ContextTypes, Application, Job
 
@@ -97,7 +98,16 @@ async def run(context: ContextTypes.DEFAULT_TYPE) -> None:
 
     match timer:
         case Timer.REDDIT_POST_ONE_PIECE | Timer.REDDIT_POST_MEME_PIECE:
-            await send_reddit_post(context, timer.info)
+            try:
+                await send_reddit_post(context, timer.info)
+            except asyncprawcore.exceptions.AsyncPrawcoreException as e:
+                # Reddit's own API/servers had a problem (a transient 5xx,
+                # rate limiting, a connection issue, etc.) - not a bug in
+                # this codebase to fix, and not worth reporting as an
+                # "unhandled exception" every time Reddit's API has a
+                # momentary hiccup. The next scheduled run of this timer
+                # tries again naturally.
+                logging.warning(f"Reddit API error running {job.name}: {e}")
         case Timer.TEMP_DIR_CLEANUP:
             cleanup_temp_dir()
         case Timer.TIMER_SEND_LEADERBOARD:
