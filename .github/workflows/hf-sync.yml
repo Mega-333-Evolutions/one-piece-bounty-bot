@@ -18,7 +18,7 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           # 1. Clone your Hugging Face Space 
-          git clone https://user:${HF_TOKEN}@huggingface.co/spaces/mega345evolutions/One_Piece_Bounty_Bot hf_space
+          git clone https://user:${HF_TOKEN}@huggingface.co/spaces/Mega-Evolutions/One_Piece_Bounty_Bot hf_space
           
           # 2. Go into the HF Space and delete everything EXCEPT the .git folder and README.md
           cd hf_space
