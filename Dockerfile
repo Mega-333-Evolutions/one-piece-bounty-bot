@@ -21,4 +21,4 @@ COPY . .
 # Start a dummy web server on Render's assigned port to keep the free tier alive, 
 # then start the bot in the foreground.
 # (If your main file is named something else, like bot.py, change main.py below)
-CMD python -m http.server $PORT & python main.py
+CMD python -m http.server 7860 & python main.py
