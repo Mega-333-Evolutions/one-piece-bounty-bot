@@ -57,3 +57,15 @@ class ChatMigrated(TelegramError):
 
 class InvalidToken(TelegramError):
     """Mirrors telegram.error.InvalidToken."""
+
+
+# Texts of the errors that _errors.py raises for "the bot can't (or no longer can) reach this
+# user / chat / message". Defined here so the code that recognises them - runtime.py's
+# background-task wrapper and chat/manage_message.py - matches on the very same strings that
+# are raised, and treats them as expected, non-fatal outcomes rather than as bugs. The first two
+# are Bot API's own wording for the same conditions (what python-telegram-bot surfaced
+# verbatim).
+BOT_BLOCKED_BY_USER_MESSAGE = "bot was blocked by the user"
+USER_DEACTIVATED_MESSAGE = "user is deactivated"
+CHAT_NOT_ACCESSIBLE_MESSAGE = "Chat is not accessible (bot was kicked/banned, or the chat is private)"
+MESSAGE_TO_EDIT_NOT_FOUND_MESSAGE = "Message to edit not found"
