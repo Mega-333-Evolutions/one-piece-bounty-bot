@@ -5,8 +5,8 @@ from datetime import datetime, timedelta
 from typing import Tuple, Callable
 
 from peewee import DoesNotExist
-from src.tg_compat import Update
-from src.tg_compat.error import RetryAfter, Forbidden
+from src.tg_compat import Update, Chat
+from src.tg_compat.error import RetryAfter, Forbidden, CHAT_NOT_ACCESSIBLE_MESSAGE
 from src.tg_compat.ext import ContextTypes
 
 import constants as c
@@ -467,6 +467,12 @@ async def manage_after_db(
             logging.error(f"Updated message same as previous in chat {update.effective_chat.id}")
         elif "query is too old" in error_str or "query id is invalid" in error_str:
             logging.warning("Ignored stale callback query (Query is too old).")
+        elif CHAT_NOT_ACCESSIBLE_MESSAGE.lower() in error_str:
+            # Same expected, non-bug occurrence as the Forbidden handler below (bot kicked/banned
+            # from the group, or the group went private - e.g. right after being added): Bot API
+            # reports it as a Forbidden, MTProto as a BadRequest (see _errors.py).
+            chat_id = update.effective_chat.id if update.effective_chat is not None else None
+            logging.warning(f"Chat {chat_id} is not accessible: {bre}")
         else:
             raise bre
     except NavigationLimitReachedException:
@@ -500,6 +506,69 @@ async def manage_after_db(
 
     if user.should_update_model and user.tg_user_id is not None:
         user.save()
+
+
+def get_triggering_command_message(update: Update):
+    """
+    Get the command message that triggered the bot message whose Delete/Close button was just
+    tapped - if, and only if, it is safe to delete it together with the bot message.
+
+    In a group the bot answers a command by replying to it, so the command is the bot message's
+    reply_to_message. But the bot also replies to messages that are NOT the command that
+    triggered it (e.g. /status used in reply to another player's message answers that player's
+    message), so a reply is only ever treated as the triggering command when it really is a
+    command (not any other message), sent by the very user who tapped the button: a user's own
+    command is removed together with the bot's answer to it, never somebody else's message.
+
+    :param update: The callback update of the Delete/Close button tap
+    :return: The command message to delete, or None if there isn't one
+    """
+
+    bot_message = update.effective_message
+    tapping_user = update.effective_user
+    if bot_message is None or tapping_user is None:
+        return None
+
+    # In private chats the bot doesn't quote the user's command, so there's nothing to link to
+    if bot_message.chat is None or bot_message.chat.type == Chat.PRIVATE:
+        return None
+
+    command_message = bot_message.reply_to_message
+    if (
+        command_message is None
+        or command_message.forum_topic_created is not None  # Topic header, not a real reply
+        or command_message.from_user is None
+        or command_message.from_user.is_bot
+        or command_message.from_user.id != tapping_user.id
+        or not is_command(command_message.text)
+    ):
+        return None
+
+    return command_message
+
+
+async def delete_message_and_command(update: Update) -> None:
+    """
+    Delete the bot message a Delete/Close button was tapped on and, best effort, the command
+    the user sent to trigger it (see get_triggering_command_message)
+    :param update: The callback update of the Delete/Close button tap
+    :return: None
+    """
+
+    command_message = get_triggering_command_message(update)
+
+    await delete_message(update)
+
+    if command_message is None:
+        return
+
+    try:
+        await command_message.delete()
+    except Exception as e:
+        # Best effort: deleting another user's message needs the "delete messages" admin right
+        # in a group, which the bot doesn't always have. Not worth more than a debug line, and it
+        # must never get in the way of the bot message itself having been deleted above.
+        logging.debug(f"Could not delete command message {command_message.message_id}: {e}")
 
 
 async def validate(
@@ -543,7 +612,7 @@ async def validate(
 
         # Delete request, best effort
         if ReservedKeyboardKeys.DELETE in inbound_keyboard.info:
-            await delete_message(update)
+            await delete_message_and_command(update)
             return False
 
     # Always accept delete request in private chat
