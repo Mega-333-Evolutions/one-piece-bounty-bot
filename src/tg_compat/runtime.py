@@ -18,9 +18,56 @@ from ._bot import Bot
 from ._message import Message, CallbackQuery, InlineQuery, Update
 from ._types import TelegramUser
 from ._jobqueue import JobQueue
-from .error import BadRequest
+from .error import (
+    BadRequest,
+    Forbidden,
+    BOT_BLOCKED_BY_USER_MESSAGE,
+    CHAT_NOT_ACCESSIBLE_MESSAGE,
+    MESSAGE_TO_EDIT_NOT_FOUND_MESSAGE,
+    USER_DEACTIVATED_MESSAGE,
+)
 
 logger = logging.getLogger(__name__)
+
+# Telegram failures that are an *expected*, non-fatal outcome for a fire-and-forget background
+# task: whatever it was targeting (a user, a chat, a message) is simply gone or unreachable,
+# which says nothing about a bug in this codebase. Each entry is a lowercase snippet looked for
+# in the error text, mapped to the reason that gets logged. See create_task() below.
+_EXPECTED_BAD_REQUESTS = {
+    # The recipient hasn't been "encountered" by this bot session in any capacity Telethon can
+    # resolve a peer from, which real Bot API/PTB never had as a failure mode at all (the same
+    # condition notification_service.py's send_notification_execute already tolerates - see
+    # MIGRATION_NOTES.md).
+    "cannot start conversations": "recipient unreachable",
+    "invalid peer": "recipient unreachable",
+    # A message the task wanted to edit was deleted first (e.g. the player tapped its Delete
+    # button) - there is nothing left to edit.
+    MESSAGE_TO_EDIT_NOT_FOUND_MESSAGE.lower(): "message was deleted before it could be edited",
+    # The bot was kicked/banned from the group (or it went private) after the task was queued.
+    CHAT_NOT_ACCESSIBLE_MESSAGE.lower(): "bot no longer has access to the chat",
+}
+_EXPECTED_FORBIDDEN = {
+    # See _errors.py: MTProto reports these as 400s, Bot API as 403 Forbidden.
+    BOT_BLOCKED_BY_USER_MESSAGE.lower(): "recipient blocked the bot",
+    USER_DEACTIVATED_MESSAGE.lower(): "recipient's account no longer exists",
+}
+
+
+def _expected_failure_reason(error: Exception) -> str | None:
+    """Why `error` is an expected, non-fatal outcome for a background task (and so shouldn't be
+    reported as an unhandled exception), or None if it's a genuine, unexpected error."""
+    if isinstance(error, BadRequest):
+        expected = _EXPECTED_BAD_REQUESTS
+    elif isinstance(error, Forbidden):
+        expected = _EXPECTED_FORBIDDEN
+    else:
+        return None
+
+    message = str(error).lower()
+    for snippet, reason in expected.items():
+        if snippet in message:
+            return reason
+    return None
 
 
 class Context:
@@ -120,33 +167,25 @@ class Application:
         async def _wrapped():
             try:
                 await coro
-            except BadRequest as e:
-                message = str(e).lower()
-                if "cannot start conversations" in message or "invalid peer" in message:
-                    # Same condition notification_service.py's
-                    # send_notification_execute already treats as expected and
-                    # non-fatal (see MIGRATION_NOTES.md) - the recipient
-                    # hasn't been "encountered" by this bot session in any
-                    # capacity Telethon can resolve a peer from, which real
-                    # Bot API/PTB never had as a failure mode at all. This
-                    # codebase has dozens of other places that also fire a
-                    # message to a specific user as a background task (game
-                    # results, location-change DMs, etc.) without their own
-                    # try/except for this - rather than adding one to each
-                    # individually, this generic wrapper (which every
-                    # create_task() call already funnels through) is the one
-                    # place that can catch all of them consistently.
-                    logger.info(f"Background task {name or '<unnamed>'}: recipient unreachable, skipping ({e})")
+            except Exception as e:
+                reason = _expected_failure_reason(e)
+                if reason is not None:
+                    # An expected, non-fatal outcome (see _EXPECTED_BAD_REQUESTS /
+                    # _EXPECTED_FORBIDDEN above): the recipient is unreachable or blocked the
+                    # bot, the message to edit was deleted, the bot lost access to the chat...
+                    # This codebase has dozens of places that fire a message at / edit
+                    # something for a specific user or chat as a background task (game
+                    # results, hint loops, location-change DMs, etc.) without their own
+                    # try/except for these - rather than adding one to each individually, this
+                    # generic wrapper (which every create_task() call already funnels through)
+                    # is the one place that can handle all of them consistently, at info level
+                    # instead of as a scary "unhandled exception" report.
+                    logger.info(f"Background task {name or '<unnamed>'}: {reason}, skipping ({e})")
                 else:
                     logger.exception(f"Unhandled exception in background task {name or '<unnamed>'}")
                     await self.bot.report_error(
                         f"Unhandled exception in background task {name or '<unnamed>'}:\n\n{traceback.format_exc()}"
                     )
-            except Exception:
-                logger.exception(f"Unhandled exception in background task {name or '<unnamed>'}")
-                await self.bot.report_error(
-                    f"Unhandled exception in background task {name or '<unnamed>'}:\n\n{traceback.format_exc()}"
-                )
 
         task = asyncio.ensure_future(_wrapped())
         self._background_tasks.add(task)
