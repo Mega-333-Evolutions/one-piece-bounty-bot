@@ -1165,6 +1165,64 @@ try/except control-flow logic itself (catches the right category, doesn't
 swallow an unrelated exception type) against a simulation built from that
 same confirmed hierarchy.
 
+## Blocked users, kicked-from-group and deleted-message errors were reported as bugs; Delete now also removes the user's command
+
+Three separate error-log reports, one shared cause. A notification to a user
+who had blocked the bot (`UserIsBlockedError`), an edit of a message that
+had been deleted in the meantime (`MessageIdInvalidError`, "Message to edit
+not found") and a "thanks for adding me" message in a group the bot had
+been kicked/banned from (`ChannelPrivateError`) all surfaced as "Unhandled
+exception in background task" / "Error handling update". The code that
+copes with those situations (`except Forbidden` in
+`notification_service.py`, the DM sends in `game_service.py`,
+`broadcast_service.py`'s `_is_permanent_failure`, ...) was written for Bot
+API, which reports "the user blocked the bot" and "the user's account was
+deleted" as a **403 Forbidden**. MTProto reports the very same conditions
+as **400**s, so `translate_errors()` turned them into a plain `BadRequest`
+and they slipped past every one of those handlers.
+
+**Fix:**
+- `_errors.py` now maps `UserIsBlockedError` and `InputUserDeactivatedError`
+  to `Forbidden` (with Bot API's own wording, "bot was blocked by the user" /
+  "user is deactivated"). `ChannelPrivateError` deliberately stays a
+  `BadRequest`: `_types._get_chat_member` and the `ignore_bad_request_exception=True`
+  group edits in `game_service.py` already depend on it being one, so
+  changing its type could turn a quietly-tolerated situation into a new crash.
+  It only gets a stable text (`CHAT_NOT_ACCESSIBLE_MESSAGE`) to be recognised by.
+  The four texts live in `error.py` so the code raising them and the code
+  matching them can't drift apart.
+- `runtime.py`'s `create_task()` wrapper (the same one extended for unresolvable
+  peers in an earlier entry) now treats all four conditions - blocked, deactivated,
+  message to edit gone, bot lost access to the chat - as expected outcomes
+  and logs them at info level. Anything else is still logged in full and
+  reported to `ERROR_LOG_CHAT_ID`, exactly as before.
+- `manage_message.py`'s `manage_after_db` handles the "chat not accessible"
+  `BadRequest` the same way it already handled `Forbidden` (a warning, not an
+  "Error handling update" report).
+
+**Delete also deletes the command that triggered the message.** Tapping a
+Delete/Close button (group settings, any `add_delete_button=True` message,
+a Yes/No confirmation whose button is a delete button, ...) now removes the
+bot message and, in a group, the command the user sent to get it. In a group the bot quotes the
+command it answers, so that command is the bot message's `reply_to_message`.
+It is only deleted when it really is a command (starts with one of
+`COMMAND_PREFIX_ALIASES`), was sent by the very user who tapped the button,
+and isn't a forum-topic header - so a reply to *another* player's message
+(e.g. `/status` on someone else's message) never deletes that player's
+message. Deleting someone's message needs the bot's "delete messages" admin
+right, so it's best effort: if the bot lacks it the bot message is still
+deleted and nothing is raised. Not applicable in private chats, where the
+bot doesn't quote the command.
+
+**On verification:** ran the real code with real Telethon (1.45) error objects
+and a fake client: the original code reproduces all three reported errors,
+the fixed code doesn't; the pre-existing mappings (`FloodWaitError` ->
+`RetryAfter`, "message is not modified", 403s, `PeerIdInvalidError`,
+`UserNotParticipantError`, timeouts) and the reporting of genuine bugs are
+unchanged; the Delete button's authorization check is unchanged, and the
+command is left alone for a different user, a non-command, a bot/anonymous
+sender, a topic header and private chats.
+
 ## Known limitations / things worth knowing
 
 A few places where Telethon's model doesn't map 1:1 onto Bot API's, in order
