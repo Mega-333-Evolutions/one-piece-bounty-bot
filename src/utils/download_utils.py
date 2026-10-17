@@ -5,20 +5,26 @@ import random
 import shutil
 import string
 import time
-import urllib.error
-import urllib.request
 import uuid
 
 import constants as c
 import resources.Environment as Env
+from src.utils.image_fetch import fetch_to_file
 
 
-def download_temp_file(url: str, extension: str = None) -> str:
+def download_temp_file(
+    url: str, extension: str = None, expect_image: bool = False, timeout: float = 30
+) -> str:
     """
-    Download file to temp folder
+    Download file to temp folder, the way a browser would (see image_fetch.py: when the host
+    doesn't take the request of a script, the other ways to download it are tried before giving up)
     :param url: url of file
     :param extension: File extension
+    :param expect_image: If the file has to be an image. A host that blocks the bot often answers
+    with a web page instead of an error, which is then not taken as a file that was downloaded
+    :param timeout: Seconds to wait for the host in every request
     :return: path of downloaded file
+    :raises urllib.error.HTTPError, urllib.error.URLError: If the file can't be downloaded in any way
     """
 
     # Create temp folder
@@ -29,37 +35,7 @@ def download_temp_file(url: str, extension: str = None) -> str:
     extension = pathlib.Path(url).suffix if extension is None else extension
     file_path = generate_temp_file_path(extension)
 
-    # Download file with a browser-like User-Agent to avoid blocking by some hosts
-    request = urllib.request.Request(
-        url,
-        headers={
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/125.0.0.0 Safari/537.36"
-            ),
-            "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9",
-        },
-    )
-
-    for attempt in range(3):
-        try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                with open(file_path, "wb") as out_file:
-                    shutil.copyfileobj(response, out_file)
-            return file_path
-        except urllib.error.HTTPError as e:
-            # Retry transient server-side or rate limit errors once
-            if attempt < 2 and e.code in {429, 502, 503, 504}:
-                time.sleep(1)
-                continue
-            raise
-        except urllib.error.URLError:
-            if attempt < 2:
-                time.sleep(1)
-                continue
-            raise
+    fetch_to_file(url, file_path, timeout=timeout, expect_image=expect_image)
 
     return file_path
 

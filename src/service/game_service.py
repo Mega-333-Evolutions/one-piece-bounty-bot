@@ -1676,7 +1676,8 @@ def get_generic_boards_for_guess_game(
         board = None
         max_retries = 10
         attempts = 0
-        
+        last_error = None
+
         while board is None and attempts < max_retries:
             try:
                 if terminology_type == Character:
@@ -1696,10 +1697,17 @@ def get_generic_boards_for_guess_game(
                         board = board_class(random_terminology)
             except ValueError as e:
                 logging.warning(f"Retrying board creation... ({e})")
+                last_error = e
                 attempts += 1
                 board = None # Ensure it stays None to retry
-        
+
         if board is None:
+            # The reason is what tells a developer what to fix (e.g. the host of the images blocking this
+            # server), and the message below is all the player (and the support group) gets
+            logging.error(
+                f"Could not create the {game.get_type().name} board of game {game.id} after "
+                f"{max_retries} attempts, the last one failed with: {last_error}"
+            )
             raise CommonChatException("Failed to generate a valid game board after multiple attempts due to missing resources.")
 
         save_game(game, board.get_as_json_string(), hint_was_issued=True)

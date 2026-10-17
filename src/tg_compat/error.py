@@ -69,3 +69,13 @@ BOT_BLOCKED_BY_USER_MESSAGE = "bot was blocked by the user"
 USER_DEACTIVATED_MESSAGE = "user is deactivated"
 CHAT_NOT_ACCESSIBLE_MESSAGE = "Chat is not accessible (bot was kicked/banned, or the chat is private)"
 MESSAGE_TO_EDIT_NOT_FOUND_MESSAGE = "Message to edit not found"
+# The bot has never "encountered" this user in any way MTProto lets it resolve a peer from (no
+# message from them, no shared chat, no callback query... - Telegram only hands a bot a user's
+# access_hash the first time it sees them), so it simply can't message them. Deliberately worded
+# to contain "invalid peer", which notification_service.py and runtime.py already recognise as an
+# expected, non-fatal outcome - and NOT any of broadcast_service.py's "permanently gone"
+# snippets ("chat not found", "user not found", "user is deactivated", "peer_id_invalid"): this
+# says nothing about the account itself, so it must never deactivate the player.
+PEER_NOT_RESOLVABLE_MESSAGE = (
+    "Invalid peer: the bot has never encountered this user, so it cannot message them"
+)

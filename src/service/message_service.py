@@ -3,6 +3,7 @@ import json
 import logging
 import re
 import traceback
+from collections import OrderedDict
 from uuid import uuid4
 
 from src.tg_compat import (
@@ -495,6 +496,9 @@ async def full_message_send(
                 message_thread_id=topic_id,
             )
 
+            # Remember which command this is the answer to, for Delete and auto delete
+            link_message_to_command(update, chat_id, message)
+
             # Enqueue for auto deletion
             if should_auto_delete:
                 context.application.create_task(enqueue_message_auto_delete(group_chat, message))
@@ -808,6 +812,9 @@ async def full_media_send(
                     )
                 case _:
                     raise ValueError(f"Invalid saved media type: {saved_media.type}")
+
+            # Remember which command this is the answer to, for Delete and auto delete
+            link_message_to_command(update, chat_id, message)
 
             if should_save_media_id:
                 saved_media.media_id = message.photo[-1].file_id
@@ -1632,3 +1639,116 @@ async def enqueue_message_auto_delete(group_chat: GroupChat, message: Message):
     auto_delete.message_id = message.message_id
     auto_delete.delete_date = get_datetime_in_future_minutes(group_chat.auto_delete_duration)
     auto_delete.save()
+
+
+# --------------------------------------------------------------------------
+# Command <-> answer links
+# --------------------------------------------------------------------------
+#
+# Deleting a bot message in a group - with its Delete/Close button, or because the group has auto
+# delete enabled - is meant to remove the user's command message together with it, so the chat
+# doesn't fill up with orphaned commands. Which message that command is can't be reliably worked
+# out from the answer afterwards: the bot doesn't always reply to the command (e.g. /status used
+# in reply to somebody else's message answers *that* message, and a few screens quote a specific
+# message on purpose), and the only relationship Telegram keeps on an answer is its reply target.
+# The one moment the relationship is known for certain is when the answer is sent, in response to
+# the update that carries the command - so that is when it's recorded here, keyed by the answer.
+#
+# Deliberately a bounded in-memory map rather than a database column: a link is only needed while
+# the answer is still on screen, so the oldest ones are simply dropped once the map is full, no
+# schema change is involved, and it costs the (usage-billed) database nothing. The trade-off is
+# that links don't survive a restart of the bot; messages answered before one still get deleted
+# as before, and Delete falls back to the reply-based detection in manage_message.py.
+
+_COMMAND_LINKS_MAX_SIZE = 20000
+_command_links: "OrderedDict[tuple[int, int], int]" = OrderedDict()
+
+
+def _normalize_chat_id(chat_id: int | str | None) -> int | None:
+    """
+    Chat ids reach this module as ints (updates) and as numeric strings (the group table stores
+    them as strings): normalise them so that the same chat always maps to the same link key
+    :param chat_id: The chat id
+    :return: The chat id as an int, or None if it isn't a plain numeric id
+    """
+
+    try:
+        return int(str(chat_id).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def link_message_to_command(
+    update: Update | None, chat_id: int | str | None, message: Message | None
+) -> None:
+    """
+    Record that the bot message that was just sent is the answer to the command the update
+    carries, if it is one, so that deleting the answer can delete the command along with it (see
+    get_linked_command_message_id). Only a group message sent in the very chat of the command is
+    linked: a command answered elsewhere (e.g. in a private chat) has no command next to its
+    answer to clean up. Never raises, since it runs right after a message was successfully sent.
+    :param update: The update the answer is a response to
+    :param chat_id: The chat the answer was sent to
+    :param message: The answer that was just sent
+    """
+
+    try:
+        if update is None or message is None or update.callback_query is not None:
+            return
+
+        command_message = update.effective_message
+        if command_message is None or not is_command(command_message.text):
+            return
+
+        if get_message_source(update) is not MessageSource.GROUP:
+            return
+
+        command_chat_id = _normalize_chat_id(update.effective_chat.id)
+        if command_chat_id is None or command_chat_id != _normalize_chat_id(chat_id):
+            return
+
+        key = (command_chat_id, message.message_id)
+        _command_links[key] = command_message.message_id
+        _command_links.move_to_end(key)
+        while len(_command_links) > _COMMAND_LINKS_MAX_SIZE:
+            _command_links.popitem(last=False)
+    except Exception:
+        logging.debug("Could not link the message to its command", exc_info=True)
+
+
+def get_linked_command_message_id(
+    chat_id: int | str | None, message_id: int, pop: bool = False
+) -> int | None:
+    """
+    Get the id of the command message a bot message was sent in answer to
+    :param chat_id: The chat of the bot message
+    :param message_id: The bot message id
+    :param pop: True to also forget the link, once the bot message is deleted
+    :return: The command message id, or None if it isn't known
+    """
+
+    key = (_normalize_chat_id(chat_id), message_id)
+
+    if pop:
+        return _command_links.pop(key, None)
+
+    return _command_links.get(key)
+
+
+async def delete_command_message(
+    context: ContextTypes.DEFAULT_TYPE, chat_id: int | str, message_id: int
+) -> None:
+    """
+    Delete the command message of a user, best effort. Deleting somebody else's message requires
+    the "delete messages" admin right, which the bot doesn't always have in a group, so a failure
+    is expected and never worth more than a debug line - and it must never get in the way of the
+    bot message having been deleted just before it.
+    :param context: The context
+    :param chat_id: The chat of the command message
+    :param message_id: The command message id
+    """
+
+    try:
+        await context.bot.delete_message(chat_id, message_id)
+    except Exception as e:
+        logging.debug(f"Could not delete command message {message_id} in chat {chat_id}: {e}")

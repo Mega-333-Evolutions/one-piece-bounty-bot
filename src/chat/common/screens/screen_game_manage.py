@@ -160,6 +160,20 @@ async def dispatch_game(
             raise GroupChatException(GroupChatError.INVALID_GAME)
 
 
+def _is_board_missing(game: Game) -> bool:
+    """
+    Check if a game whose board is built from remote resources has not got its board(s) yet
+    :param game: The game
+    :return: True if the board (or, in a global game, the opponent board) is not there yet
+    """
+
+    # Guess or Life builds its board locally and can't fail to
+    if game.get_type() is GameType.GUESS_OR_LIFE:
+        return False
+
+    return game.board is None or (game.is_global() and game.opponent_board is None)
+
+
 async def restart_hint_thread_if_down(
     context: ContextTypes.DEFAULT_TYPE, game: Game, user: User = None
 ) -> None:
@@ -192,6 +206,18 @@ async def restart_hint_thread_if_down(
 
         case _:
             raise ValueError(f"Unsupported game type: {game.get_type()}")
+
+    # Punk Records, Shambles and Who's Who build their board lazily, from a random wiki resource
+    # (and, for Who's Who, its downloaded image), the first time it's needed. A game that has no
+    # board yet therefore never got to start - typically the resources couldn't be fetched when
+    # the players tried to start it (the one that is told so by manage() right then) - and there
+    # is no hint thread to restart. Don't build the board from here: this job comes due again for
+    # every such game, every hint interval, and each time it would block the bot with a burst of
+    # downloads only to fail the same way, reported as an unhandled exception in a background
+    # task. Starting the game again from its "Play" button is what gets a new try.
+    if _is_board_missing(game):
+        logging.debug(f"Not restarting hint thread of game {game.id}: it has no board yet")
+        return
 
     # No user given (so from timer), if is global game, then also try restarting for opponent
     if user is None and game.is_global() and game.has_opponent():

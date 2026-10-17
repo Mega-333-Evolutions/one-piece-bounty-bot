@@ -63,7 +63,19 @@ def get_cached_access_hash(user_id: int):
     return _access_hash_cache.get(user_id)
 
 
-async def ensure_resolvable_peer(client, user_id: int) -> None:
+def _is_unknown_input_entity_error(error: Exception) -> bool:
+    """
+    True if `error` is Telethon's "I have never seen this peer, and I can't look it up" failure:
+    a plain ValueError ("Could not find the input entity for PeerUser(user_id=...)") raised by
+    get_input_entity() - which both client.get_entity() and client.send_message() call to turn a
+    bare user id into something addressable. It is *not* an RPCError, so translate_errors()
+    can't map it to anything specific and it used to surface as an opaque, generic
+    TelegramError.
+    """
+    return isinstance(error, ValueError) and "could not find the input entity" in str(error).lower()
+
+
+async def ensure_resolvable_peer(client, user_id: int) -> bool:
     """
     Best-effort warm-up before sending a brand-new message directly to a
     user by ID - e.g. notification_service.py's proactive notifications,
@@ -72,26 +84,31 @@ async def ensure_resolvable_peer(client, user_id: int) -> None:
     fallback that also populates the cache for next time), just for "send
     to this user" instead of "reference this user inside message text".
 
-    Deliberately swallows every exception here: this is purely a
-    best-effort attempt to warm the cache before the real send, not a
-    resolvability gate. A mention can gracefully degrade to plain bold
-    text when a user turns out to be unresolvable; a message send can't -
-    there's nothing to degrade *to*. So if this lookup fails, it's left to
-    the send call right after it to raise its own, already-correctly-typed
-    error (translate_errors turns Telethon's PeerIdInvalidError into this
-    codebase's own BadRequest, which callers already know how to handle -
-    see notification_service.py's send_notification_execute) rather than
-    this raising a *different*, un-typed exception (e.g. a bare ValueError
-    from get_entity() finding nothing locally) that those existing
-    handlers wouldn't recognize.
+    Every failure of that lookup is swallowed *except one*: the lookup
+    coming back with Telethon's "Could not find the input entity" ValueError
+    (see _is_unknown_input_entity_error) means the bot has never encountered
+    this user at all, so the real send right after it is guaranteed to fail
+    with the very same ValueError - which translate_errors() could only turn
+    into a generic, un-typed TelegramError that none of the existing
+    handlers (notification_service.py's send_notification_execute, runtime.py's
+    background-task wrapper, ...) recognise, so it was reported as an
+    unhandled bug every time. Any other failure is still left to the send
+    call itself to raise its own, already-correctly-typed error.
+
+    :return: False if the user is known to be unresolvable (the caller should
+    raise a BadRequest instead of attempting the doomed send), True otherwise
+    - including when the lookup failed for any *other* reason, since that is
+    no proof the send can't work.
     """
     if get_cached_access_hash(user_id) is not None:
-        return
+        return True
     try:
         entity = await client.get_entity(user_id)
         remember_access_hash(entity)
-    except Exception:
-        pass
+    except Exception as e:
+        if _is_unknown_input_entity_error(e):
+            return False
+    return True
 
 
 def coerce_peer(value):

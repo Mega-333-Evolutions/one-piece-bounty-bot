@@ -49,6 +49,8 @@ from src.service.devil_fruit_service import get_ability_adjusted_datetime
 from src.service.message_service import (
     mention_markdown_user,
     delete_message,
+    delete_command_message,
+    get_linked_command_message_id,
     full_media_send,
     get_message_url,
     full_message_send,
@@ -510,8 +512,11 @@ async def manage_after_db(
 
 def get_triggering_command_message(update: Update):
     """
-    Get the command message that triggered the bot message whose Delete/Close button was just
-    tapped - if, and only if, it is safe to delete it together with the bot message.
+    Guess the command message that triggered the bot message whose Delete/Close button was just
+    tapped from the message itself - if, and only if, it is safe to delete it together with the
+    bot message. This is only the fallback for bot messages the bot has no record of having
+    answered a command with (see message_service.link_message_to_command), which in practice
+    means messages sent before its last restart.
 
     In a group the bot answers a command by replying to it, so the command is the bot message's
     reply_to_message. But the bot also replies to messages that are NOT the command that
@@ -547,28 +552,50 @@ def get_triggering_command_message(update: Update):
     return command_message
 
 
-async def delete_message_and_command(update: Update) -> None:
+async def delete_message_and_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Delete the bot message a Delete/Close button was tapped on and, best effort, the command
-    the user sent to trigger it (see get_triggering_command_message)
+    the user sent to trigger it: the one recorded when the bot sent that message, whatever message
+    it replied to and whichever authorized user taps the button (the bot may have answered a
+    command used in reply to somebody else's message by replying to *that* message instead), else
+    the reply-based guess of get_triggering_command_message
     :param update: The callback update of the Delete/Close button tap
+    :param context: The context
     :return: None
     """
 
-    command_message = get_triggering_command_message(update)
+    bot_message = update.effective_message
+    chat = update.effective_chat
+
+    linked_command_message_id = None
+    if bot_message is not None and chat is not None and chat.type != Chat.PRIVATE:
+        linked_command_message_id = get_linked_command_message_id(
+            chat.id, bot_message.message_id, pop=True
+        )
+
+    # Looked up before the deletion below, which takes the message (and so its reply) away
+    reply_based_command_message = (
+        None if linked_command_message_id is not None else get_triggering_command_message(update)
+    )
 
     await delete_message(update)
 
-    if command_message is None:
+    if linked_command_message_id is not None:
+        await delete_command_message(context, chat.id, linked_command_message_id)
+        return
+
+    if reply_based_command_message is None:
         return
 
     try:
-        await command_message.delete()
+        await reply_based_command_message.delete()
     except Exception as e:
         # Best effort: deleting another user's message needs the "delete messages" admin right
         # in a group, which the bot doesn't always have. Not worth more than a debug line, and it
         # must never get in the way of the bot message itself having been deleted above.
-        logging.debug(f"Could not delete command message {command_message.message_id}: {e}")
+        logging.debug(
+            f"Could not delete command message {reply_based_command_message.message_id}: {e}"
+        )
 
 
 async def validate(
@@ -612,7 +639,7 @@ async def validate(
 
         # Delete request, best effort
         if ReservedKeyboardKeys.DELETE in inbound_keyboard.info:
-            await delete_message_and_command(update)
+            await delete_message_and_command(update, context)
             return False
 
     # Always accept delete request in private chat

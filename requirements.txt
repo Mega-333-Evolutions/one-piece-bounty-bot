@@ -13,6 +13,9 @@ pymysql~=1.1.1
 pytz~=2023.3
 cryptography>=42.0.0
 requests~=2.31.0
+# Optional: lets the bot download images like a real Chrome (TLS handshake included) when the host
+# of the images (Fandom's, for Who's Who) refuses the plain Python downloads. The bot works without it.
+curl_cffi>=0.7
 one-piece-wanted-poster>=0.0.13
 Unidecode>=1.3.6
 confusable-homoglyphs>=3.3.1

@@ -1212,7 +1212,9 @@ and isn't a forum-topic header - so a reply to *another* player's message
 message. Deleting someone's message needs the bot's "delete messages" admin
 right, so it's best effort: if the bot lacks it the bot message is still
 deleted and nothing is raised. Not applicable in private chats, where the
-bot doesn't quote the command.
+bot doesn't quote the command. (This reply-based guess is now only the fallback:
+the next entry covers commands used in reply to someone else's message and
+group auto delete.)
 
 **On verification:** ran the real code with real Telethon (1.45) error objects
 and a fake client: the original code reproduces all three reported errors,
@@ -1222,6 +1224,164 @@ the fixed code doesn't; the pre-existing mappings (`FloodWaitError` ->
 unchanged; the Delete button's authorization check is unchanged, and the
 command is left alone for a different user, a non-command, a bot/anonymous
 sender, a topic header and private chats.
+
+## Auto delete and Delete now remove the user's command wherever it was sent; two more background-task errors
+
+Four reports from the error log / from use, fixed together.
+
+**1. Group auto delete only deleted the bot's message, not the command.**
+`auto_delete_process` (the minute job behind /settings' auto delete) only
+knew the id of the bot message it had queued, and nothing linked that
+message to the command it answered.
+
+**2. Delete didn't remove some commands - the ones used in reply to another
+message.** The previous entry found the command through the bot message's
+`reply_to_message`. But some screens (`/status`, for one) answer the message the
+command was *replying to* instead of the command, so the reply pointed at
+somebody else's message, which is (rightly) never deleted.
+
+**Fix for 1 and 2:** `message_service.py` now remembers, at the moment the bot
+answers a command in a group, which command message each answer belongs to
+(`link_message_to_command`, called by `full_message_send` and `full_media_send`
+right after the send; it never raises, so it can't break a send). The link is
+made only when the update is a message (not a button tap) whose text is a
+command, in a group, and the answer went to that same chat; it doesn't matter
+which message the bot replied to. The registry is bounded (20,000 links, oldest
+dropped first). Then:
+- Tapping Delete (`manage_message.delete_message_and_command`) deletes the bot
+  message and the linked command. Any user the button authorizes can tap it, as
+  before; the linked command is the one that triggered the message, whoever sent
+  it. A tap by an unauthorized user changes nothing and keeps the link. Without
+  a link (see below) it falls back to the previous entry's reply-based guess,
+  with all its safety conditions.
+- Auto delete (`auto_delete_process`) deletes the linked command right after the
+  bot message. Nothing is deleted while the message is deferred because of an
+  active challenge, and the link is kept for when it is finally deleted.
+Limits: the registry lives in memory, so after a restart messages sent before it
+have no link (Delete falls back to the reply-based guess; auto delete only
+removes the bot message). Deleting somebody else's message needs the bot's
+"delete messages" admin right: without it the bot message is still deleted and
+nothing is raised. Flows that delete their own messages (fight/plunder retreat,
+game rejection, ...) don't go through either path and are unchanged.
+
+**3. `Could not find the input entity for PeerUser(user_id=...)` reported as an
+unhandled background-task error.** Telethon can only message a user whose
+access hash it has seen. For a user id the bot has never encountered it raises a
+bare `ValueError`, which `translate_errors` turned into a generic
+`TelegramError` - nothing treated that as a "recipient can't be reached" case.
+`ensure_resolvable_peer` used to swallow the failed lookup and let the send
+raise the same error. Now `ensure_resolvable_peer` returns False for exactly
+that error (and True for anything else, e.g. a network hiccup, which the send
+itself will report), and `Bot._warm_user_peer` raises
+`BadRequest("Invalid peer: the bot has never encountered this user, so it cannot
+message them")` before the doomed send (send_message, copy_message, send_photo,
+send_video, send_animation). The text contains "invalid peer", which
+`notification_service.py` and the `create_task` wrapper in `runtime.py` already
+treat as expected, and deliberately none of the snippets `broadcast_service.py`
+takes as "permanent" - the player isn't deactivated, since they can still become
+reachable by messaging the bot. Any other `ValueError` still ends up as the
+generic `TelegramError`.
+
+**4. `Failed to generate a valid game board after multiple attempts` (C0) from
+`restart_hint_thread_if_down`.** Punk Records, Shambles and Who's Who build
+their board the first time it's needed. A game with no board therefore never
+started - the players got that C0 message when they tried - but the periodic
+hint-thread restarter kept trying to build it for every such game, every hint
+interval: a burst of downloads that fail the same way, reported as an unhandled
+background-task error each time. `restart_hint_thread_if_down` now skips games
+whose board is missing (in a global game, also the opponent's). Starting the
+game again from its Play button is what retries. Guess or Life builds its board
+locally and is unaffected. Why the boards couldn't be built is the next entry.
+
+**On verification:** the real functions against fake Telethon clients/bots and an
+in-memory database: the previous code reproduces each report (auto delete
+deleting `[bot message]` only, Delete leaving the command in the chat, the
+unhandled `TelegramError` with Telethon's text, the `CommonChatException` from
+the restarter), the new code doesn't, and the Round 1 behaviours (private chats,
+unauthorized taps, the reply-based fallback, Forbidden/ChannelPrivate handling)
+still pass. Not testable here: a live group - in particular whether the bot has
+the "delete messages" right there.
+
+## Who's Who: it can't start a game when the image host refuses the bot's downloads - the images can now ship with the bot
+
+Every Who's Who game downloads the character's image when it starts, from
+Fandom's image server (`static.wikia.nocookie.net`: all 678 `anime_image_url`s of
+`assets/items/character.json`). If a download fails the game picks another
+character, up to 10 times; if all 10 fail the player gets "Error C0: Failed to
+generate a valid game board ... due to missing resources", and the restarter of
+the previous entry used to repeat the failure in the background.
+
+The download function is `download_temp_file()` in `src/utils/download_utils.py`
+(not in `game_service.py`), and it was **already sending a browser User-Agent**
+before any of this. So a User-Agent is not what's missing, and I can't tell you
+which of the possible causes applies: Fandom's CDN couldn't be reached from where
+this was built. The log says it, per attempt: `Dead image link for <name>: HTTP
+Error 403: Forbidden` (the CDN refuses your server - the most likely one: CDNs
+often distrust the addresses of cloud hosts, and some tell a script from a
+browser by the TLS handshake whatever the User-Agent says), `HTTP Error 404`
+(that image is gone from the wiki), `<urlopen error ...>` (network/DNS),
+`Failed to process image` (what came back isn't an image).
+
+**What changed**
+- *The cause is no longer lost.* The `ValueError` of a failed image now carries
+  it (`Image unavailable for Zoro (HTTP Error 403: Forbidden)`), and
+  `get_generic_boards_for_guess_game` logs one ERROR with the last cause and the
+  game id when it gives up. The player's message is unchanged.
+- *Bundled images (the fix that doesn't depend on the CDN letting the server
+  in).* `WhosWho` looks for `assets/images/characters/<name>.jpg` first and uses
+  it - a copy in the temp folder, like a download - with no network at all; only
+  characters without a bundled image are downloaded. `<name>` comes from the image
+  url (`.../Abdullah_Anime_Infobox.png/revision/latest?cb=...` ->
+  `Abdullah_Anime_Infobox.jpg`, `get_bundled_image_file_name`). A bundled file that
+  can't be used (an empty file, or a Git LFS pointer deployed instead of the
+  image) is ignored with a warning and the image is downloaded instead.
+  `scripts/download_character_images.py` makes the bundle: run it on any machine
+  that CAN download the images (your computer: if they open in your browser it
+  works), then commit `assets/images/characters` and deploy. It downloads
+  4 at a time, converts each image the way the bot already does (RGB, shrunk if
+  longer than 1200 px, JPEG), skips what is already there (so stopping and
+  re-running is fine), and ends with a summary by reason - including the dead
+  links, whose characters Who's Who can't use (it moves on to another when it
+  hits one). The files are `.jpg` on purpose, like the rest of the images in
+  `assets/`: this repo's `.gitattributes` treats `*.jpg` specially (Git LFS), so
+  they are committed exactly as `assets/images/saved_media/*.jpg` are.
+- *A sturdier download, for the characters that aren't bundled.* The new
+  `src/utils/image_fetch.py` (it imports nothing from the bot, so the script uses
+  it too) sends everything a browser loading an image sends (Referer = the wiki's
+  own page, Sec-Fetch-*, client hints; no `image/avif`, which Pillow 10 can't
+  open) and, when that fails, tries other ways before giving up: **curl_cffi**
+  (new in `requirements.txt`, optional: the bot runs without it), which does a
+  real Chrome's TLS/HTTP2 handshake, and an **image proxy** if the
+  `IMAGE_PROXY_URL` environment variable is set, e.g.
+  `https://wsrv.nl/?url={url}&output=jpg` (the proxy downloads the image instead
+  of your server, which is the way around a CDN that blocks its address). A dead
+  link (400/404/410) is final: no other way is tried. A host that answers a web
+  page with 200 instead of an error is now a failure (found by the file's
+  signature), where it used to crash later with `PIL.UnidentifiedImageError` -
+  which the retry loop didn't catch. Truncated and oversized images are refused the same
+  way, and a WebP/other format is converted to JPEG (Telegram doesn't take every
+  format as a photo; the old code saved WebP bytes under a `.jpg` name).
+- The requests for a Who's Who image wait at most 15 s each (they waited 30).
+
+**Not changed, worth knowing:** board creation and downloads still run on the bot's
+event loop, so the bot doesn't answer anybody while one waits (bounded now, and
+gone for bundled images); `cleanup_temp_dir()` still deletes *every* temp file on
+each run (`or True`), which `WhosWho` was already written to survive by getting its
+image again - from the bundle now, without the network.
+
+**On verification:** the real `WhosWho`, `get_generic_boards_for_guess_game` (with a
+real `Game` row) and the script (as a subprocess) against a local HTTP server
+that behaves like the ways a CDN can refuse: 403 to scripts, a stand-in for TLS
+fingerprinting, a 200 web page, a dead link, WebP, a truncated image, an oversized
+one, 429s and a timeout. The previous code fails or crashes in most of them
+(`Image unavailable`, `PIL.UnidentifiedImageError`, `OSError: image file is
+truncated`); the new code works or fails cleanly with the cause. The names the
+script writes are the ones `WhosWho` reads (checked with the CDN refusing
+everything), and all 678 real urls get unique, filesystem-safe names. **What I
+could not verify:** a download from the real Fandom CDN, and curl_cffi's TLS
+handshake against a real TLS server (locally it's plain HTTP, so the code path
+is exercised but the handshake isn't). That's why the bundle is the
+recommended fix: it doesn't depend on either.
 
 ## Known limitations / things worth knowing
 

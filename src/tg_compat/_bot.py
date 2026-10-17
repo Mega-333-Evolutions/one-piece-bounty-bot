@@ -24,6 +24,7 @@ from telethon.tl.types import (
 )
 
 from ._errors import translate_errors
+from .error import BadRequest, PEER_NOT_RESOLVABLE_MESSAGE
 from ._markdown import markdown_v2_to_html
 from ._keyboard import convert_markup_to_buttons
 from ._mentions import resolve_mentions
@@ -160,9 +161,20 @@ class Bot:
         negative in this codebase's Bot-API-style numbering, and the bot
         already resolves those fine via its own group/channel membership,
         so this deliberately only fires for the "DMing a user by ID" case
-        (e.g. notifications) where PeerIdInvalidError actually shows up."""
+        (e.g. notifications) where PeerIdInvalidError actually shows up.
+
+        Raises BadRequest(PEER_NOT_RESOLVABLE_MESSAGE) when the user turns
+        out to be one the bot has never encountered (see
+        ensure_resolvable_peer): the send that follows would only fail with
+        Telethon's bare "Could not find the input entity" ValueError, which
+        translate_errors can't type - it used to reach callers as a generic
+        TelegramError and get reported as an unhandled bug by every
+        background task that DMs a user. As a BadRequest it is instead
+        handled like every other "can't reach this recipient" outcome
+        (see notification_service.py and runtime.py)."""
         if isinstance(chat_id, int) and chat_id > 0:
-            await ensure_resolvable_peer(self._client, chat_id)
+            if not await ensure_resolvable_peer(self._client, chat_id):
+                raise BadRequest(PEER_NOT_RESOLVABLE_MESSAGE)
 
     # -- messages -----------------------------------------------------------
 

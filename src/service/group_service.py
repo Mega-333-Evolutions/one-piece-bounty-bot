@@ -22,7 +22,12 @@ from src.model.PredictionGroupChatMessage import PredictionGroupChatMessage
 from src.model.User import User
 from src.model.enums.Feature import Feature
 from src.model.pojo.Keyboard import Keyboard
-from src.service.message_service import full_message_send, delete_message
+from src.service.message_service import (
+    full_message_send,
+    delete_message,
+    delete_command_message,
+    get_linked_command_message_id,
+)
 
 
 def is_main_group(group_chat: GroupChat) -> bool:
@@ -428,6 +433,19 @@ async def auto_delete_process(
         )
     except TelegramError as te:
         save_group_chat_error(group_chat, str(te))
+
+    # The command the user sent to get this message goes with it, not left behind on its own.
+    # Only now that the message is really being deleted (and not deferred above), and never in
+    # a way that could stop the queue entry below from being removed.
+    try:
+        tg_group_id = group_chat.group.tg_group_id
+        command_message_id = get_linked_command_message_id(
+            tg_group_id, auto_delete_item.message_id, pop=True
+        )
+        if command_message_id is not None:
+            await delete_command_message(context, tg_group_id, command_message_id)
+    except Exception as e:
+        logging.debug(f"Could not auto delete the command of message {auto_delete_item.message_id}: {e}")
 
     auto_delete_item.delete_instance()
 
