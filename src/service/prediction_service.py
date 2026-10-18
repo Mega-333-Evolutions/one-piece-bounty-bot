@@ -548,6 +548,13 @@ async def set_results(context: ContextTypes.DEFAULT_TYPE, prediction: Prediction
             await add_or_remove_bounty(
                 user, refund_amount, pending_belly_amount=prediction_option_user.wager
             )
+        elif not prediction_option.is_correct:
+            # Lost bet that is not refunded. The wager left the bounty when the bet was placed and
+            # has been held as pending bounty since then, so all that is left to do is to stop
+            # holding it (the player doesn't get it back). Winning bets (above) and refunded ones
+            # (just above) release their pending part in their own add_or_remove_bounty call; this
+            # one used to be skipped, so a lost wager stayed pending forever
+            await add_or_remove_bounty(user, 0, pending_belly_amount=prediction_option_user.wager)
 
         user.save()
 
