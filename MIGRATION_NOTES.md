@@ -1383,6 +1383,89 @@ handshake against a real TLS server (locally it's plain HTTP, so the code path
 is exercised but the handshake isn't). That's why the bundle is the
 recommended fix: it doesn't depend on either.
 
+## Messaging another bot was reported as an unhandled exception
+
+Error-log report: `Unhandled exception in background task <unnamed>`, ending in
+`BadRequest: Bots can't send messages to other bots (caused by
+SendMessageRequest)`, raised from `send_notification_execute` - a notification
+addressed to a player that is a bot.
+
+`notification_service.py` already skips that case quietly: its `except
+BadRequest` looks for `"bot_to_bot"` in the error text. But the real MTProto
+error for it is `USER_IS_BOT` (Telethon's `UserIsBotError`), whose text -
+"Bots can't send messages to other bots" - has no such marker. So
+`translate_errors()` made it a plain `BadRequest`, the check didn't match, the
+handler re-raised it and the background-task wrapper reported it.
+
+**Fix:**
+- `_errors.py` maps `UserIsBotError` to a `BadRequest` whose text is
+  `BOT_TO_BOT_MESSAGE` (`error.py`): "Bots can't send messages to other bots
+  (bot_to_bot)". It is still a `BadRequest` - that is what the existing handler
+  is written for - with the marker it looks for, and it still says what
+  happened. (It has to be matched before the generic `BadRequestError` branch,
+  which `UserIsBotError` is a subclass of.)
+- `runtime.py`'s `create_task()` wrapper treats the marker as an expected outcome
+  too (info log, no report), for the other background tasks that message a
+  player without a handler of their own (game DMs, ...).
+
+**On verification:** the real `send_notification` -> `create_task` ->
+`send_notification_execute` -> `full_message_send` -> `Bot.send_message` ->
+`translate_errors` chain with a real Telethon `UserIsBotError`. The previous code
+reports exactly the traceback from the log; the new code reports nothing, and a
+genuine `BadRequest` is still reported. **What I could not verify:** a real
+Telegram server (the error object is built the way Telethon builds it).
+
+## Predictions: lost bets stayed pending, "wagers refunded" winners weren't paid, deleting a prediction didn't return the wagers
+
+Three bounty bugs in `prediction_service.py`. The code involved is identical in
+the PTB source, so they are old game-logic bugs, not migration regressions.
+
+1. **A lost bet stayed in the pending bounty after the result was set** ("the
+   player who bet on a losing option still has the bounty he used to bet as
+   pending"). Placing a bet moves the wager from `bounty` to `pending_bounty`.
+   `set_results` released it for winning bets and for refunded bets, but skipped
+   a lost bet that isn't refunded - the normal case - so the wager stayed pending
+   until the next bounty reset, which turns pending back into bounty (the loser
+   got the lost wager back as free bounty). `set_results` now releases it; the
+   player doesn't get it back.
+2. **On a prediction with "wagers refunded" the winners weren't paid their
+   winnings.** Every bet - winners' too - went through a win/loss step and then a
+   refund step, and `add_or_remove_bounty` reloads the user's bounty from the
+   database on every call, so the second call discarded the first: the winner was
+   left with the capped refund only (3 000 staked on a 4 000 pool: 7 400 instead of
+   11 000, less than the 10 000 he started with). Each bet now gets exactly one call
+   - winners their winnings, losing bets the refund (capped, or in full when no
+   option is correct) - and the result notification only says "(Your wager was
+   refunded)" to players who have a losing bet.
+3. **Deleting a prediction that had bets didn't return the wagers.** The delete
+   confirmation promises "they will be refunded", but `delete_prediction` called
+   `add_or_remove_bounty` on the bettors without saving them (and they aren't the
+   user whose update is being handled, who is the one that gets saved), so the
+   wagers stayed in their pending bounty until the next reset. They are saved now.
+   A *finished* prediction still pays nothing back when it is deleted - its result
+   was already paid out, and returning the wagers on top would give everybody,
+   losers included, a free refund - which is now explicit instead of a side effect
+   of the missing save.
+
+**Not changed, worth knowing:** nothing is repaired for what already happened:
+players whose lost wager is still pending (a bounty reset that happened since
+returned it to them as bounty, so the amount can't be worked out from the
+database alone), winners of "wagers refunded" predictions who were paid the refund
+only, and bettors of predictions deleted before this fix.
+
+**On verification:** the real `save_prediction_option_user`, `close_bets`,
+`set_results` and `delete_prediction` against an in-memory database with the
+project's real tables (only the Telegram edge - sending notifications and
+refreshing the group messages - is replaced). Each problem was reproduced on the
+previous code first (loser: bounty 9 000, pending 1 000; "wagers refunded" winner:
+7 400 where the same bets without the refund pay 11 000; a deleted prediction's
+bettors: pending still 1 000 / 2 000), then checked on the new code: a loser, a
+loser with pending bounty from elsewhere, a player with a winning and a losing bet,
+a player with two losing bets, nobody on the correct option, no correct option at
+all, a withdrawn bet, the "wagers refunded" variants of all of those, deleting
+open, closed and finished predictions, and a creator who bet on his own prediction
+(the save at the end of his own update doesn't undo the refund).
+
 ## Known limitations / things worth knowing
 
 A few places where Telethon's model doesn't map 1:1 onto Bot API's, in order
@@ -1406,11 +1489,12 @@ of how likely they are to matter in practice:
   as an explicit fallback for re-upload.
 - **DMing another bot.** Bot API rejects bot-to-bot private messages with a
   specific error (`notification_service.py` checks for `"bot_to_bot"` in the
-  error text). This is now translated as a `BadRequest`, but I could not
-  fully confirm which underlying MTProto error Telegram's servers return for
-  this specific scenario, since I don't have a way to test it. Unlikely to
-  come up (it only applies when messaging another bot account), but worth
-  knowing if you ever see an unexpected error there.
+  error text). MTProto's error for it is `USER_IS_BOT` (Telethon's
+  `UserIsBotError`, "Bots can't send messages to other bots"), which
+  `translate_errors()` turns into a `BadRequest` carrying that marker - see
+  "Messaging another bot was reported as an unhandled exception" above. (An
+  earlier version of this note said the real error couldn't be confirmed; an
+  error-log report did.)
 - **Inline query results are plain text.** `InlineQuery.answer()` (used by
   `src/chat/inline_query/inline_query_manager.py`) strips MarkdownV2
   formatting down to plain text rather than converting it to entities, since

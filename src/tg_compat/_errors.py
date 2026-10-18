@@ -29,6 +29,7 @@ from .error import (
     RetryAfter,
     TelegramError,
     BOT_BLOCKED_BY_USER_MESSAGE,
+    BOT_TO_BOT_MESSAGE,
     USER_DEACTIVATED_MESSAGE,
     CHAT_NOT_ACCESSIBLE_MESSAGE,
     MESSAGE_TO_EDIT_NOT_FOUND_MESSAGE,
@@ -50,6 +51,7 @@ _QueryIdInvalidError = _lookup("QueryIdInvalidError")
 _UserNotParticipantError = _lookup("UserNotParticipantError")
 _UserIsBlockedError = _lookup("UserIsBlockedError")
 _InputUserDeactivatedError = _lookup("InputUserDeactivatedError")
+_UserIsBotError = _lookup("UserIsBotError")
 _ChannelPrivateError = _lookup("ChannelPrivateError")
 _ForbiddenError = _lookup("ForbiddenError")
 _UnauthorizedError = _lookup("UnauthorizedError")
@@ -86,6 +88,14 @@ async def translate_errors(coro):
     except _InputUserDeactivatedError as e:
         # Same story: Bot API's 403 "user is deactivated" (the account was deleted).
         raise Forbidden(USER_DEACTIVATED_MESSAGE) from e
+    except _UserIsBotError as e:
+        # The recipient is a bot ("Bots can't send messages to other bots"). It stays a
+        # BadRequest, but with the "bot_to_bot" marker that send_notification_execute looks for to
+        # skip such a recipient quietly (see BOT_TO_BOT_MESSAGE). Telethon's own text has no such
+        # marker, so this used to fall through to the generic BadRequest branch below and escape
+        # as an unhandled exception. Must stay above that branch: UserIsBotError is a
+        # BadRequestError.
+        raise BadRequest(BOT_TO_BOT_MESSAGE) from e
     except _ChannelPrivateError as e:
         # Bot API reports this one - the bot was kicked/banned from the group, or the chat went
         # private - as a 403 Forbidden too. It is deliberately still a BadRequest here, unlike

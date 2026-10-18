@@ -69,6 +69,14 @@ BOT_BLOCKED_BY_USER_MESSAGE = "bot was blocked by the user"
 USER_DEACTIVATED_MESSAGE = "user is deactivated"
 CHAT_NOT_ACCESSIBLE_MESSAGE = "Chat is not accessible (bot was kicked/banned, or the chat is private)"
 MESSAGE_TO_EDIT_NOT_FOUND_MESSAGE = "Message to edit not found"
+# The recipient is itself a bot, and bots can't message each other, so there is nothing to deliver.
+# notification_service.py's send_notification_execute recognises "a DM to another bot" by a
+# "bot_to_bot" marker in a BadRequest's text and skips that recipient quietly, but MTProto's own
+# wording ("Bots can't send messages to other bots") has no such marker - so _errors.py raises this
+# text instead: still a BadRequest, with the marker, and still saying what happened. runtime.py
+# matches on the marker too.
+BOT_TO_BOT_MARKER = "bot_to_bot"
+BOT_TO_BOT_MESSAGE = f"Bots can't send messages to other bots ({BOT_TO_BOT_MARKER})"
 # The bot has never "encountered" this user in any way MTProto lets it resolve a peer from (no
 # message from them, no shared chat, no callback query... - Telegram only hands a bot a user's
 # access_hash the first time it sees them), so it simply can't message them. Deliberately worded

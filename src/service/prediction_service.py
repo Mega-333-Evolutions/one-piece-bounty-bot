@@ -533,28 +533,36 @@ async def set_results(context: ContextTypes.DEFAULT_TYPE, prediction: Prediction
             # Remove from total win
             users_total_win[user.id][1] -= prediction_option_user.wager
 
-        # Should refund wager or no correct options
-        if prediction.refund_wager or len(prediction_options_correct) == 0:
-            if len(prediction_options_correct) == 0:
-                # No correct options, refund full wager
-                refund_amount = prediction_option_user.wager
-            else:
-                # Cap refund
-                refund_amount = min(
-                    prediction_option_user.wager,
-                    get_max_wager_refund(prediction_option_user=prediction_option_user),
-                )
+            # Every bet is settled with exactly ONE add_or_remove_bounty call, which also releases
+            # the bet's wager from the pending bounty. That method reloads the user's bounty from
+            # the database each time it runs, so a second call for the same bet throws away what
+            # the first one did: winners of a "wagers refunded" prediction used to get a win call
+            # and then a refund call, and ended up with the capped refund only, without their
+            # winnings. Only losing bets are refunded
+            if prediction.refund_wager or len(prediction_options_correct) == 0:
+                # Should refund wager or no correct options
+                if len(prediction_options_correct) == 0:
+                    # No correct options, refund full wager
+                    refund_amount = prediction_option_user.wager
+                else:
+                    # Cap refund
+                    refund_amount = min(
+                        prediction_option_user.wager,
+                        get_max_wager_refund(prediction_option_user=prediction_option_user),
+                    )
 
-            await add_or_remove_bounty(
-                user, refund_amount, pending_belly_amount=prediction_option_user.wager
-            )
-        elif not prediction_option.is_correct:
-            # Lost bet that is not refunded. The wager left the bounty when the bet was placed and
-            # has been held as pending bounty since then, so all that is left to do is to stop
-            # holding it (the player doesn't get it back). Winning bets (above) and refunded ones
-            # (just above) release their pending part in their own add_or_remove_bounty call; this
-            # one used to be skipped, so a lost wager stayed pending forever
-            await add_or_remove_bounty(user, 0, pending_belly_amount=prediction_option_user.wager)
+                await add_or_remove_bounty(
+                    user, refund_amount, pending_belly_amount=prediction_option_user.wager
+                )
+            else:
+                # Lost bet that is not refunded. The wager left the bounty when the bet was placed
+                # and has been held as pending bounty since then, so all that is left to do is to
+                # stop holding it (the player doesn't get it back). Winning and refunded bets
+                # release their pending part in their own call; this one used to be skipped, so a
+                # lost wager stayed pending forever
+                await add_or_remove_bounty(
+                    user, 0, pending_belly_amount=prediction_option_user.wager
+                )
 
         user.save()
 
@@ -1072,10 +1080,24 @@ async def delete_prediction(prediction: Prediction):
     """
 
     # Delete all prediction option users and return wagers
+    is_result_set = prediction.is_result_set()
     prediction_option_users: list[PredictionOptionUser] = get_prediction_options_users(prediction)
     for prediction_option_user in prediction_option_users:
         user: User = prediction_option_user.user
+
+        if is_result_set:
+            # The result has already been paid out (the winners got their winnings, the wagers of
+            # the others are gone for good), so there is nothing to return: returning the wagers
+            # now would give everybody, losers included, their wager back on top of that
+            prediction_option_user.delete_instance()
+            continue
+
         await delete_prediction_option_user(user, prediction_option_user)
+
+        # add_or_remove_bounty doesn't save the user, and this is not the user whose update is
+        # being handled (the one that gets saved when the update ends), so without this the wager
+        # was never returned: it stayed in the bettor's pending bounty until the next bounty reset
+        user.save()
 
     # Delete prediction
     prediction.delete_instance()

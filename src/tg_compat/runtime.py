@@ -22,6 +22,7 @@ from .error import (
     BadRequest,
     Forbidden,
     BOT_BLOCKED_BY_USER_MESSAGE,
+    BOT_TO_BOT_MARKER,
     CHAT_NOT_ACCESSIBLE_MESSAGE,
     MESSAGE_TO_EDIT_NOT_FOUND_MESSAGE,
     USER_DEACTIVATED_MESSAGE,
@@ -40,6 +41,9 @@ _EXPECTED_BAD_REQUESTS = {
     # MIGRATION_NOTES.md).
     "cannot start conversations": "recipient unreachable",
     "invalid peer": "recipient unreachable",
+    # The recipient is a bot, and bots can't message each other (see _errors.py; the same case
+    # send_notification_execute skips quietly) - e.g. a game DM to a "player" that is a bot.
+    BOT_TO_BOT_MARKER: "recipient is a bot",
     # A message the task wanted to edit was deleted first (e.g. the player tapped its Delete
     # button) - there is nothing left to edit.
     MESSAGE_TO_EDIT_NOT_FOUND_MESSAGE.lower(): "message was deleted before it could be edited",

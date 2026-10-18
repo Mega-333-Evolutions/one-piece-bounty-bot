@@ -607,7 +607,11 @@ class PredictionResultNotification(Notification):
             wager_refunded_text = (
                 phrases.PREDICTION_RESULT_NOTIFICATION_WAGER_REFUNDED_NO_CORRECT_OPTIONS
             )
-        elif self.prediction.refund_wager:
+        elif self.prediction.refund_wager and any(
+            not option.is_correct for option in self.prediction_options
+        ):
+            # Only bets on a wrong option are refunded, a player who only has winning bets is paid
+            # his winnings instead, so there is no refund to tell him about
             max_refund_wager = get_max_wager_refund(prediction=self.prediction, user=self.user)
             # User lost more than the refundable amount
             if self.total_win < 0 and abs(self.total_win) > max_refund_wager:  #
