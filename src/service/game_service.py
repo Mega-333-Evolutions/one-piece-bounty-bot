@@ -101,22 +101,14 @@ async def end_game(
 
     # Determine the final status up front (pure computation, no I/O) so the atomic claim
     # below can move the row directly from IN_PROGRESS to its final status in one step.
-    half_wager: int = int(game.wager / 2)
-
-    bounty_for_challenger = bounty_for_opponent = 0
-    pending_bounty_for_challenger = pending_bounty_for_opponent = int(game.wager / 2)
     if game_outcome == GameOutcome.CHALLENGER_WON:
         # Challenger won
         final_status = GameStatus.WON
-        bounty_for_challenger = game.wager
     elif game_outcome == GameOutcome.OPPONENT_WON:
         # Opponent won
         final_status = GameStatus.LOST
-        bounty_for_opponent = game.wager
     else:
         # No one won
-        bounty_for_challenger = half_wager
-        bounty_for_opponent = half_wager
         final_status = GameStatus.FORCED_END if is_forced_end else GameStatus.DRAW
 
     # Idempotent check: atomically claim the IN_PROGRESS -> final status transition with a
@@ -163,6 +155,24 @@ async def end_game(
 
     challenger: User = game.challenger
     opponent: User = game.opponent
+
+    # What each player put in, worked out from the refreshed row. Once an opponent has joined,
+    # game.wager is the whole pot (collect_game_wagers_and_set_in_progress doubles it), so each
+    # stake is half of it. A global challenge that nobody accepted - the one that expires - has
+    # no opponent: only the challenger paid, and game.wager is just their own stake. All of it
+    # goes back to them: it used to be halved like a pot of two, so only half came back and the
+    # other half stayed stuck in the challenger's pending bounty
+    own_stake: int = game.wager if opponent is None else int(game.wager / 2)
+
+    bounty_for_challenger = bounty_for_opponent = 0
+    pending_bounty_for_challenger = pending_bounty_for_opponent = own_stake
+    if game_outcome == GameOutcome.CHALLENGER_WON:
+        bounty_for_challenger = game.wager
+    elif game_outcome == GameOutcome.OPPONENT_WON:
+        bounty_for_opponent = game.wager
+    else:
+        # No one won, everybody gets their own stake back
+        bounty_for_challenger = bounty_for_opponent = own_stake
 
     if not previous_status.no_wager_was_collected():
         await add_or_remove_bounty(

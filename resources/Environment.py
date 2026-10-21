@@ -621,8 +621,8 @@ GAME_INACTIVE_TIME_SINCE_START_MINUTES = Environment(
     "GAME_INACTIVE_TIME_SINCE_START_MINUTES", default_value="60"
 )
 # After how much time should a global game be considered inactive if an opponent has not yet accepted it in hours.
-# Default: 12 hours
-GAME_GLOBAL_INACTIVE_HOURS = Environment("GAME_GLOBAL_INACTIVE_HOURS", default_value="12")
+# Default: 24 hours
+GAME_GLOBAL_INACTIVE_HOURS = Environment("GAME_GLOBAL_INACTIVE_HOURS", default_value="24")
 
 # One Piece Wiki URL
 ONE_PIECE_WIKI_URL = Environment(

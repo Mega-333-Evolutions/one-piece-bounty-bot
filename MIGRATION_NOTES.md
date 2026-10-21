@@ -1521,6 +1521,48 @@ bounty clamped to 0 - `AttributeError` before, the "not enough bounty" answer
 server (the error object is built the way Telethon builds it), and why the bot was already
 out of that channel.
 
+## Global challenges: an expired challenge returned only half the wager, and it now lasts 24 hours, not 12
+
+**How it works.** "Start as global" makes the challenger pay the wager at once
+(`collect_game_wagers_and_set_in_progress`: bounty -> pending bounty) and puts the challenge
+in the global list. If nobody accepts it, the cleanup job `end_inactive_games` (cron
+`CRON_END_INACTIVE_GAMES`, every 5 minutes by default) ends it as a forced end once
+`GAME_GLOBAL_INACTIVE_HOURS` hours have passed since the challenger started it (and it has been
+idle for the usual 10 minutes). The default was 12 hours; it is now **24**. The setting is only
+defined in `resources/Environment.py` and only read by `end_inactive_games`; an environment
+variable of the same name overrides the default, so if `GAME_GLOBAL_INACTIVE_HOURS` is set
+where the bot is deployed, change it there too (or delete it).
+
+**The bug.** `end_game` assumed `game.wager` is a pot of two stakes - it is, once an opponent
+has joined, because `collect_game_wagers_and_set_in_progress` doubles it - and so returned and
+released `wager / 2` per player. An unaccepted global challenge has no opponent, so its
+`wager` is only the challenger's own stake and half of it was returned: with a 4 000 wager
+the challenger went from 10 000 to bounty 8 000 / pending 2 000, and the other half sat in
+the pending bounty until the next bounty reset moved pending back into bounty. The code is
+identical in the PTB source, so this is old game logic, not a migration regression.
+
+**Fix:** `end_game` now works out what each player put in from the refreshed row, after the
+atomic claim: half the pot when there is an opponent (exactly as before), the whole wager
+when there isn't one. This also fixes a rare race found while testing: the cleanup job picks a
+batch of games and ends them one at a time, so a challenge accepted in between used to be
+handled with the stale, un-doubled wager and each player got half of what they had paid.
+
+**Not changed, worth knowing:** nothing is repaired for challenges that already expired. The
+other half of those wagers is still in the challengers' pending bounty; the next bounty reset
+returns it, or `/rpending` returns one player's pending bounty right away (all of it - also
+what is held by an open game or a prediction bet, so only use it on a player who has none).
+
+**On verification:** the real `collect_game_wagers_and_set_in_progress` (a challenge opened and
+accepted exactly as the two screens do it), `end_inactive_games` and `end_game`, against an
+in-memory database with the project's real tables, moving the dates stored on the game back
+to let time pass. Previous code: a 4 000 challenge came back as 8 000 / 2 000 (every wager
+tried, odd ones too, and every game type); new code: 10 000 / 0, a player's pending bounty
+from elsewhere is left alone, running the cleanup twice doesn't refund twice, a challenge
+10 minutes under the limit is still open and 10 minutes over it is ended. The payouts of
+games that do have an opponent - won, lost, drawn, and accepted-then-expired - were compared
+to the previous code for several wagers and are identical. **What I could not verify:** the
+real clock and Telegram (the dates were moved in the database).
+
 ## Known limitations / things worth knowing
 
 A few places where Telethon's model doesn't map 1:1 onto Bot API's, in order
