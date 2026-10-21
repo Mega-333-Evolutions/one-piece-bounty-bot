@@ -169,6 +169,18 @@ class TelegramUser:
             return f"{self.first_name} {self.last_name}".strip()
         return self.first_name or ""
 
+    def to_dict(self) -> dict:
+        """Mirrors telegram.User.to_dict(): the fields that are set, as a plain dict (what the logs
+        and the error reports show)."""
+        data = {
+            "id": self.id,
+            "is_bot": self.is_bot,
+            "first_name": self.first_name or None,
+            "last_name": self.last_name,
+            "username": self.username,
+        }
+        return {key: value for key, value in data.items() if value is not None}
+
     @classmethod
     def from_entity(cls, entity, client=None) -> "TelegramUser":
         if entity is None:
@@ -489,10 +501,30 @@ class Chat:
             _client=client,
         )
 
-    async def leave(self):
-        from ._errors import translate_errors
+    def to_dict(self) -> dict:
+        """Mirrors telegram.Chat.to_dict(): the fields that are set, as a plain dict (what the logs
+        and the error reports show)."""
+        data = {
+            "id": self.id,
+            "type": self.type,
+            "title": self.title,
+            "username": self.username,
+            "is_forum": True if self.is_forum else None,
+        }
+        return {key: value for key, value in data.items() if value is not None}
 
-        await translate_errors(self._client.delete_dialog(self._entity or self.id))
+    async def leave(self):
+        from ._errors import translate_errors, is_not_in_chat_error
+
+        try:
+            await translate_errors(self._client.delete_dialog(self._entity or self.id))
+        except BadRequest as e:
+            # Leaving is meant to end with the bot not being in the chat. When Telegram says it
+            # already isn't (not a member any more, or no access to the chat) that is already the
+            # case, so there is nothing to report. Any other failure to leave is raised as before
+            if not is_not_in_chat_error(e):
+                raise
+            logger.info(f"Not leaving chat {self.id}, the bot is already not in it: {e}")
 
     async def get_member(self, user_id: int) -> ChatMember:
         return await _get_chat_member(self._client, self._entity or self.id, user_id)

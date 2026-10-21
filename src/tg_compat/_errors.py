@@ -119,3 +119,13 @@ async def translate_errors(coro):
         raise
     except Exception as e:
         raise TelegramError(str(e)) from e
+
+
+def is_not_in_chat_error(error: BaseException) -> bool:
+    """True if `error` - as raised by translate_errors() - is Telegram saying that the bot isn't in
+    the chat (any more): it isn't a member (USER_NOT_PARTICIPANT, e.g. it already left), or it
+    can't access the chat (CHANNEL_PRIVATE: kicked/banned, or the chat went private). Looks at the
+    Telethon error the translated one was raised from."""
+    return isinstance(
+        getattr(error, "__cause__", None), (_UserNotParticipantError, _ChannelPrivateError)
+    )

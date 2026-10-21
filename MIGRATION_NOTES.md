@@ -1466,6 +1466,61 @@ all, a withdrawn bet, the "wagers refunded" variants of all of those, deleting
 open, closed and finished predictions, and a creator who bet on his own prediction
 (the save at the end of his own update doesn't undo the refund).
 
+## The bot leaving a chat it had already left was reported as "Error handling update"
+
+Error-log report: `Error handling update: <src.tg_compat._message.Update object at
+0x...>`, ending in `UserNotParticipantError: The target user is not a member of the
+specified megagroup or channel (caused by LeaveChannelRequest)`, raised from
+`manage_message.py`'s `await update.effective_chat.leave()` and shown as a `BadRequest`.
+
+When an update comes from a chat the bot isn't meant to be in - a broadcast channel
+(other than the `TG_REST_CHANNEL_ID` and `UPDATES_CHAT_ID` ones), or, with
+`LIMIT_TO_AUTHORIZED_GROUPS`, a group that isn't authorized - `manage_after_db` makes
+the bot leave it and stops handling the update. That code is identical in the PTB
+source. Here Telegram answered that the bot was no longer a member, so there was nothing
+left to leave, but the error went up to `manage()`, which reports every exception: a
+leave that had already happened was reported as a failure. (Most likely a second update
+from the same channel was still being handled after the first one had made the bot
+leave, or the bot had been removed from it in the meantime - the report can't tell
+which.)
+
+**Fix:**
+- `Chat.leave()` (`_types.py`) now treats "the bot isn't in that chat (any more)" as done:
+  Telegram's `USER_NOT_PARTICIPANT` (not a member) and `CHANNEL_PRIVATE` (kicked/banned, or
+  the chat went private) - the two answers that mean exactly that - are logged at info level
+  and nothing is raised. `is_not_in_chat_error()` (`_errors.py`) recognises them from the
+  Telethon error the translated `BadRequest` was raised from. Any other failure to leave
+  (flood wait, timeout, 403, any other `BadRequest`, ...) is raised as before, so it is still
+  reported. Both `leave()` calls in `manage_after_db` are followed by a `return`, so nothing
+  else changes for those updates.
+
+**Found while checking this - the compat `Update` couldn't describe itself:**
+- The report starts with `<... Update object at 0x...>` where PTB prints the update as JSON:
+  the compat `Update` had no `__repr__`, so error reports and `logging.error(update)` said
+  nothing about the chat, user or message involved. It now prints `Update({...})` with the
+  chat, the sender and the text (or the callback data / the inline query), and can't raise.
+- It also had no `to_dict()`, which `bounty_service.add_or_remove_bounty` calls when it logs a
+  player who doesn't have enough bounty, and when it clamps a pending bounty that would go
+  negative. Whenever the caller passed the update (gift, loan, Devil Fruit purchase, Doc Q,
+  fights and plunders, wager games, Impel Down bail), that line raised `AttributeError:
+  'Update' object has no attribute 'to_dict'` instead of the "not enough bounty" answer, and
+  the player got an error report instead of an answer. Rare - most of those flows check the
+  balance first - but the wrong failure. `to_dict()` now exists on `Update` and its parts
+  (`Message`, `CallbackQuery`, `InlineQuery`, `TelegramUser`, `Chat`), as in PTB: only the
+  fields that are set, media only marked as present.
+
+**On verification:** the real `manage()` with an update from a channel whose client raises
+Telethon's `UserNotParticipantError(LeaveChannelRequest)` on `delete_dialog`: the previous
+code reports exactly the traceback from the log, the new code reports nothing. Also
+checked: a normal leave still leaves once, the updates chat is still never left, and flood
+wait / timeout / 403 / an unrelated `BadRequest` / any other error while leaving all still
+surface and are reported. The real `add_or_remove_bounty` against an in-memory database
+with the project's real tables, with an update passed: not enough bounty, and a pending
+bounty clamped to 0 - `AttributeError` before, the "not enough bounty" answer
+(`CommonChatException`) and a clean clamp now. **What I could not verify:** a real Telegram
+server (the error object is built the way Telethon builds it), and why the bot was already
+out of that channel.
+
 ## Known limitations / things worth knowing
 
 A few places where Telethon's model doesn't map 1:1 onto Bot API's, in order

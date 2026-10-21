@@ -5,6 +5,7 @@ objects. See runtime.py for where these get constructed from actual Telethon
 events.
 """
 
+import json
 import logging
 
 from telethon.tl.types import (
@@ -80,6 +81,43 @@ class Message:
 
     def get_bot(self):
         return self._bot
+
+    def to_dict(self, _include_reply: bool = True) -> dict:
+        """Mirrors telegram.Message.to_dict(): the fields that are set, as a plain dict (what the
+        logs and the error reports show). Media is only marked as present."""
+        data = {"message_id": self.message_id}
+        if self.chat is not None:
+            data["chat"] = self.chat.to_dict()
+        if self.from_user is not None:
+            data["from"] = self.from_user.to_dict()
+        if self.sender_chat is not None:
+            data["sender_chat"] = self.sender_chat.to_dict()
+        if self.text:
+            data["text"] = self.text
+        if self.message_thread_id is not None:
+            data["message_thread_id"] = self.message_thread_id
+        if self.is_topic_message:
+            data["is_topic_message"] = True
+        if self.author_signature:
+            data["author_signature"] = self.author_signature
+        if self.via_bot is not None:
+            data["via_bot"] = self.via_bot.to_dict()
+        if self.new_chat_members:
+            data["new_chat_members"] = [
+                member.to_dict() for member in self.new_chat_members if member is not None
+            ]
+        if self.left_chat_member is not None:
+            data["left_chat_member"] = self.left_chat_member.to_dict()
+        if self.migrate_to_chat_id is not None:
+            data["migrate_to_chat_id"] = self.migrate_to_chat_id
+        if self.forum_topic_created is not None:
+            data["forum_topic_created"] = {"name": self.forum_topic_created.name}
+        for media in ("forward_origin", "sticker", "animation", "video", "photo", "dice", "poll"):
+            if getattr(self, media, None):
+                data[media] = True
+        if _include_reply and self.reply_to_message is not None:
+            data["reply_to_message"] = self.reply_to_message.to_dict(_include_reply=False)
+        return data
 
     async def delete(self):
         await translate_errors(
@@ -378,6 +416,17 @@ class CallbackQuery:
         self.from_user = from_user
         self._client = _client
 
+    def to_dict(self) -> dict:
+        """Mirrors telegram.CallbackQuery.to_dict(): the fields that are set, as a plain dict."""
+        data = {"id": self.id}
+        if self.from_user is not None:
+            data["from"] = self.from_user.to_dict()
+        if self.data is not None:
+            data["data"] = self.data
+        if self.message is not None:
+            data["message"] = self.message.to_dict()
+        return data
+
     async def answer(self, text: str = None, show_alert: bool = False):
         await answer_callback_query(self._client, self.id, text=text, show_alert=show_alert)
 
@@ -390,6 +439,13 @@ class InlineQuery:
         self.query = query
         self.from_user = from_user
         self._event = _event
+
+    def to_dict(self) -> dict:
+        """Mirrors telegram.InlineQuery.to_dict(): the fields that are set, as a plain dict."""
+        data = {"id": self.id, "query": self.query}
+        if self.from_user is not None:
+            data["from"] = self.from_user.to_dict()
+        return data
 
     async def answer(self, results, **kwargs):
         from ._inline import build_and_answer_inline_query
@@ -439,3 +495,26 @@ class Update:
 
     def get_bot(self):
         return self._bot
+
+    def to_dict(self) -> dict:
+        """Mirrors telegram.Update.to_dict(): a plain dict of what the update carries. The project
+        reads it in the error logging of bounty_service.py (a player without enough bounty), and it
+        is what __repr__ below prints."""
+        data = {}
+        if self.message is not None:
+            data["message"] = self.message.to_dict()
+        if self.callback_query is not None:
+            data["callback_query"] = self.callback_query.to_dict()
+        if self.inline_query is not None:
+            data["inline_query"] = self.inline_query.to_dict()
+        return data
+
+    def __repr__(self) -> str:
+        """What `logging.error(update)` and the "Error handling update" error report print (as in
+        PTB, where it is the update as JSON): without this they only said
+        "<... Update object at 0x...>", with nothing about the chat, user or message involved."""
+        try:
+            return f"Update({json.dumps(self.to_dict(), ensure_ascii=False, default=str)})"
+        except Exception:
+            # Describing the update must never be what breaks the handling of an error
+            return object.__repr__(self)
