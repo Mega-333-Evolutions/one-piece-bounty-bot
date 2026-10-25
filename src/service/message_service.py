@@ -1532,6 +1532,28 @@ def message_is_reply(update: Update) -> bool:
         return False
 
 
+def message_is_from_bot(message: Message) -> bool:
+    """
+    Check if the message was sent by a bot (any bot, including this one)
+    :param message: The message
+    :return: True if the message was sent by a bot
+    """
+
+    return message.from_user is not None and message.from_user.is_bot
+
+
+def message_is_from_anonymous_sender(message: Message) -> bool:
+    """
+    Check if the message was sent by an anonymous group admin or by a channel. Those messages come
+    from a chat (sender_chat) instead of a user, so there is no user behind them: Telegram doesn't
+    say which admin sent it
+    :param message: The message
+    :return: True if the message was sent by an anonymous admin or a channel
+    """
+
+    return message.sender_chat is not None or message.from_user is None
+
+
 def get_message_url(
     message_id: int,
     group_chat: GroupChat = None,

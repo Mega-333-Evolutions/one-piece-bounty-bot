@@ -97,6 +97,8 @@ from src.service.message_service import (
     is_command,
     get_message_source,
     message_is_reply,
+    message_is_from_bot,
+    message_is_from_anonymous_sender,
     escape_valid_markdown_chars,
 )
 from src.service.user_service import user_is_boss, user_is_muted, get_effective_tg_user_id
@@ -363,7 +365,17 @@ async def manage_after_db(
         target_user: User | None = None
         if keyboard is None:
             try:
-                if message_is_reply(update):  # REPLY_TO_MESSAGE_BUG_FIX
+                # In groups a bot, an anonymous admin or a channel is never a target user: no
+                # command can be used on them (see validate()), so no User row is saved for them
+                if message_is_reply(update) and not (
+                    message_source is MessageSource.GROUP
+                    and (
+                        message_is_from_bot(update.effective_message.reply_to_message)
+                        or message_is_from_anonymous_sender(
+                            update.effective_message.reply_to_message
+                        )
+                    )
+                ):  # REPLY_TO_MESSAGE_BUG_FIX
                     tg_user_id = await get_effective_tg_user_id(
                         update.effective_message.reply_to_message.from_user,
                         update.effective_message.reply_to_message,
@@ -753,18 +765,23 @@ async def validate(
             except AttributeError:
                 pass
 
-        # Cannot be in reply to a Bot
-        if not command.allow_reply_to_bot and not is_callback:
-            try:
-                # REPLY_TO_MESSAGE_BUG_FIX
-                if (
-                    _message_is_reply
-                    and update.effective_message.reply_to_message.from_user.is_bot
-                    and target_user is None
-                ):
-                    raise CommandValidationException(phrases.COMMAND_IN_REPLY_TO_BOT_ERROR)
-            except AttributeError:
-                pass
+        # Cannot be in reply to a bot, an anonymous admin or a channel. Groups only: there the
+        # author of the replied message is the target of the command, while in a private chat
+        # replying to the bot's own messages is normal. Commands with allow_reply_to_bot (the
+        # prediction ones, used in reply to the bot's own prediction message) are exempt
+        if (
+            not command.allow_reply_to_bot
+            and not is_callback
+            and message_source is MessageSource.GROUP
+            and _message_is_reply  # REPLY_TO_MESSAGE_BUG_FIX
+        ):
+            replied_message = update.effective_message.reply_to_message
+
+            if message_is_from_anonymous_sender(replied_message):
+                raise CommandValidationException(phrases.COMMAND_IN_REPLY_TO_ANONYMOUS_ERROR)
+
+            if message_is_from_bot(replied_message):
+                raise CommandValidationException(phrases.COMMAND_IN_REPLY_TO_BOT_ERROR)
 
         # Cannot be in reply to an arrested user
         if not command.allow_reply_to_arrested:

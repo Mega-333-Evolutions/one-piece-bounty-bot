@@ -56,8 +56,12 @@ class Command:
         :param only_in_reply: True if the command can only be used in reply to a message
         :param allow_self_reply: True if the command can be used in reply to a message sent by the
         user
-        :param allow_reply_to_bot: True if the command can be used in reply to a message sent by
-        the bot
+        :param allow_reply_to_bot: True if the command can be used in reply to a message sent by a
+        bot, an anonymous admin or a channel (in group chats, where the author of the replied
+        message is the target of the command: every other command is refused in reply to them).
+        For the commands that don't act on the author of the replied message: the prediction ones
+        (used in reply to the bot's own prediction message) and the ones that ignore the replied
+        message altogether
         :param allow_while_arrested: True if the command can be used while the user is arrested
         :param allow_while_arrested_temporary: True if the command can be used while the user is
         arrested temporarily
@@ -310,11 +314,15 @@ GRP_GAME_OPPONENT_CONFIRMATION = Command(
     required_location=Location.get_by_level(Env.REQUIRED_LOCATION_LEVEL_GAME.get_int()),
 )
 
+# Commands that ignore the message they are in reply to (allow_reply_to_bot=True): every other
+# group command acts on the author of the replied message, so it can't be used in reply to a bot,
+# an anonymous admin or a channel
 GRP_DOC_Q_GAME = Command(
     CommandName.DOC_Q,
     Screen.GRP_DOC_Q_GAME,
     required_location=Location.get_by_level(Env.REQUIRED_LOCATION_LEVEL_DOC_Q_GAME.get_int()),
     feature=Feature.DOC_Q,
+    allow_reply_to_bot=True,
 )
 COMMANDS.append(GRP_DOC_Q_GAME)
 
@@ -328,12 +336,18 @@ GRP_USER_STATUS = Command(
 COMMANDS.append(GRP_USER_STATUS)
 
 GRP_CHANGE_REGION_NEW_WORLD = Command(
-    CommandName.NEW_WORLD, Screen.GRP_CHANGE_REGION, required_location=Location.get_last_paradise()
+    CommandName.NEW_WORLD,
+    Screen.GRP_CHANGE_REGION,
+    required_location=Location.get_last_paradise(),
+    allow_reply_to_bot=True,
 )
 COMMANDS.append(GRP_CHANGE_REGION_NEW_WORLD)
 
 GRP_CHANGE_REGION_PARADISE = Command(
-    CommandName.PARADISE, Screen.GRP_CHANGE_REGION, required_location=Location.get_last_paradise()
+    CommandName.PARADISE,
+    Screen.GRP_CHANGE_REGION,
+    required_location=Location.get_last_paradise(),
+    allow_reply_to_bot=True,
 )
 COMMANDS.append(GRP_CHANGE_REGION_PARADISE)
 
@@ -398,12 +412,20 @@ GRP_CREW_INVITE = Command(
 COMMANDS.append(GRP_CREW_INVITE)
 
 GRP_SILENCE = Command(
-    CommandName.SILENCE, Screen.GRP_SILENCE, only_by_boss=True, feature=Feature.SILENCE
+    CommandName.SILENCE,
+    Screen.GRP_SILENCE,
+    only_by_boss=True,
+    feature=Feature.SILENCE,
+    allow_reply_to_bot=True,
 )
 COMMANDS.append(GRP_SILENCE)
 
 GRP_SILENCE_END = Command(
-    CommandName.SILENCE_END, Screen.GRP_SILENCE_END, only_by_boss=True, feature=Feature.SILENCE
+    CommandName.SILENCE_END,
+    Screen.GRP_SILENCE_END,
+    only_by_boss=True,
+    feature=Feature.SILENCE,
+    allow_reply_to_bot=True,
 )
 COMMANDS.append(GRP_SILENCE_END)
 
@@ -453,6 +475,7 @@ GRP_SETTINGS = Command(
     only_by_chat_admin=True,
     answer_callback=True,
     send_message_if_error=False,
+    allow_reply_to_bot=True,
 )
 COMMANDS.append(GRP_SETTINGS)
 
@@ -471,6 +494,7 @@ GRP_DAILY_REWARD = Command(
     Screen.GRP_DAILY_REWARD,
     feature=Feature.DAILY_REWARD,
     allow_while_arrested_temporary=True,
+    allow_reply_to_bot=True,
 )
 COMMANDS.append(GRP_DAILY_REWARD)
 

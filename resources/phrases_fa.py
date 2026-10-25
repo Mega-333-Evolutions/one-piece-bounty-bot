@@ -40,6 +40,9 @@ SUPPORT_GROUP_DEEPLINK = f"[گروه پشتیبانی]({Env.SUPPORT_GROUP_LINK.g
 
 COMMAND_NOT_IN_REPLY_ERROR = "این دستور فقط در پاسخ به یک پیام قابل استفاده است"
 COMMAND_IN_REPLY_TO_BOT_ERROR = "این دستور را نمی‌توان در پاسخ به یک ربات استفاده کرد"
+COMMAND_IN_REPLY_TO_ANONYMOUS_ERROR = (
+    "این دستور را نمی‌توان در پاسخ به یک ادمین ناشناس یا یک کانال استفاده کرد"
+)
 COMMAND_IN_REPLY_TO_ERROR = "این دستور را نمی‌توان در پاسخ به پیام خودتان استفاده کرد"
 COMMAND_NOT_ACTIVE_ERROR = "این دستور دیگر در دسترس نیست"
 COMMAND_NOT_ACTIVE_WITH_REPLACEMENT_ERROR = (

@@ -1834,6 +1834,97 @@ pressing one, and a First Mate can change a setting. On the previous code 26 of 
 checks fail, as reported; now all 93 pass. **What I could not verify:** how Telegram draws it on
 your phone, mainly the Persian text (right to left) with the emoji at the end.
 
+## Commands can no longer be used in reply to a bot, an anonymous admin or a channel (the prediction commands still can)
+
+**What was happening.** In a group, `/gift`, `/fight`, `/steal`, `/challenge`, `/status` and the
+other commands that act on the person you reply to worked when the message they were sent in reply
+to had been written by a bot, by an anonymous admin (an admin posting as the group) or by a channel
+(a channel's post shown in the group's discussion). The bot treated that author as a player and
+even saved a database row for it. `validate()` already had a "Cannot be in reply to a Bot" check,
+but it could not fire: it only refused when no target user had been found (`target_user is None`),
+and by then a row had always been created for the bot; for an anonymous admin or a channel there is
+no sender user at all (`from_user` is `None`, the author is `sender_chat`), so the check ran into an
+`AttributeError` that it swallowed, and the command went through. The same lines are in the PTB
+source, so this is not a Telethon-specific bug.
+
+**New rule (group chats only).** When the replied message was written by
+
+- **a bot** (this bot included), the command is refused with "This command can't be used in reply
+  to a bot" (Persian: "این دستور را نمی‌توان در پاسخ به یک ربات استفاده کرد");
+- **an anonymous admin, a channel, or an author Telegram doesn't name**, the command is refused
+  with "This command can't be used in reply to an anonymous admin or a channel" (Persian: "این
+  دستور را نمی‌توان در پاسخ به یک ادمین ناشناس یا یک کانال استفاده کرد").
+
+The refusal is a normal message of the bot, in the language of the group, with the usual **Delete**
+button: when the person who sent the command taps it, the refusal and their command are both
+deleted (somebody else's tap deletes nothing). The command stops there, before any handler runs,
+and no database row is saved for the bot / anonymous admin / channel any more (`manage_after_db`
+skips the target lookup for them). The two texts are in `resources/phrases_en.py` and
+`phrases_fa.py` (`COMMAND_IN_REPLY_TO_BOT_ERROR`, which already existed, and the new
+`COMMAND_IN_REPLY_TO_ANONYMOUS_ERROR`), so they are easy to reword.
+
+**Which commands.** Refused: `/status`, `/fight`, `/challenge`, `/join`, `/invite`, `/speak`,
+`/gift`, `/loan`, `/dfsell`, `/steal` and the owner commands `/add`, `/take`, `/rpending`,
+`/rpendingall` - everything that treats the author of the replied message as the target. **Still
+allowed in reply to a bot**, as asked: the prediction commands `/bet`, `/bremove` and `/bstatus`
+(they are used in reply to the bot's own prediction message). Also left alone, because they ignore
+the replied message altogether: `/docq`, `/newworld`, `/paradise`, `/silence`, `/silenceend`,
+`/settings` and `/reward`. These are the commands with `allow_reply_to_bot=True` in
+`src/model/enums/Command.py` (the flag already existed and was only set for the two private
+broadcast commands and the predictions; its comment now says exactly what it does). Whether a
+command is refused is a one-word change per command there.
+
+**Not affected:** private chats (replying to the bot's own messages is how its screens work there),
+button presses (they aren't replies, so a Delete / Back / confirm button on a bot message works as
+before), and commands sent *by* an anonymous admin (the sender side behaves as it did). Rows of
+bots that earlier versions saved in the `user` table stay where they are; nothing uses them now.
+
+**On verification:** the real `manage_after_db()` / `validate()` with real compat `Update` /
+`Message` / `Chat` objects and the project's real tables and message-sending code, only the network
+calls, the spam check, the admin lookup and the command handlers replaced (the test records whether
+a command reached its handler). 760 checks: all 14 refused commands, in reply to another bot, to
+this bot, to an anonymous admin (with and without a signature), to a channel post and to a message
+with no author, in English and in Persian (text, Delete button, nothing reached the handler, no row
+saved for the bot); the three prediction commands and the seven commands that ignore the reply
+still reach their handlers; replies to normal users and commands that aren't replies are unchanged;
+private chats unchanged; every group command is checked by its flag so a command added later can't
+slip through unnoticed; the Delete button, tapped by the sender and by somebody else. All pass on
+in-memory SQLite, on a real PostgreSQL 16 server and on a real MariaDB 10.11 server in strict mode.
+The same scenarios against the previous code: 72 of the 84 refused-command scenarios (14 commands
+by 6 authors) reached the handler; the other 12 (`/join` and `/invite`) were already stopped by
+their own Crew rules. **What I could not verify:** a real Telegram group (for instance how a given
+client shows the author of an anonymous admin's or a channel's message: the rule goes by what
+Telegram puts in the update, `sender_chat` or no sender user).
+
+## PostgreSQL: a brand-new user could not be saved (`user.private_screen_list` was NOT NULL)
+
+**What was happening.** On a fresh PostgreSQL database (the support added in "New: the bot can run
+on PostgreSQL" above), the first message of somebody the bot had never seen failed while saving that
+person with `null value in column "private_screen_list" of relation "user" violates not-null
+constraint`. The column was declared `NOT NULL` with no default, and a new user is saved without a
+value for it. MySQL without strict mode quietly stores an empty string in that situation, so
+nothing ever showed on MySQL / TiDB; PostgreSQL refuses. In a chat the error is caught, logged and
+reported ("Error handling update") by the handler that calls `manage_after_db`, so on PostgreSQL
+every person new to the bot would have got no answer, while players copied over by the copy script
+(who already have a row) would have been fine. Found while testing the rule above, when the bot's
+own user row could not be created in a private chat.
+
+**Fix** (`src/model/User.py`): `private_screen_list` is now nullable. An empty list was already
+`None` or `""` everywhere it is read, so nothing else changes. A PostgreSQL database that was
+already created with the old definition (for instance the one the copy script filled before this
+version) is repaired at startup: `User.py` drops the NOT NULL when, and only when, the database is
+PostgreSQL and the column is still NOT NULL, so it does nothing on the following starts. MySQL /
+TiDB are not touched (their column stays as it is and a new user is saved exactly as before). A
+static scan of every place that creates a row found no other NOT NULL column left without a value.
+
+**On verification:** on a real PostgreSQL 16 server, a new user could not be saved before and is
+saved now, on a fresh schema; with the column put back to NOT NULL to imitate an old database, the
+startup repairs it and the second startup does nothing; on a real MariaDB 10.11 server in strict
+mode a new user is saved; and the copy script, run for real from a MariaDB whose column is still
+NOT NULL to the new PostgreSQL schema, copied 1,230 rows in 41 tables with 0 differences, as before.
+**What I could not verify:** Supabase itself (no access from here), so the first start of the bot
+against it is worth watching in the logs.
+
 ## Known limitations / things worth knowing
 
 A few places where Telethon's model doesn't map 1:1 onto Bot API's, in order

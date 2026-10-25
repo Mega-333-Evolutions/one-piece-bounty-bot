@@ -77,7 +77,9 @@ class User(BaseModel):
         default=datetime.datetime.now
     )
     last_system_interaction_date: datetime.datetime | DateTimeField = DateTimeField(null=True)
-    private_screen_list: str | CharField | None = CharField(max_length=99)
+    # Nullable: a brand new user is saved without it, and an empty list is None or "" everywhere
+    # it is read. MySQL used to fill in "" by itself for a NOT NULL column, PostgreSQL refuses
+    private_screen_list: str | CharField | None = CharField(max_length=99, null=True)
     private_screen_step: int | SmallIntegerField | None = SmallIntegerField(null=True)
     private_screen_in_edit_id: int | IntegerField | None = IntegerField(null=True)
     bounty_gift_tax: int | IntegerField = IntegerField(default=0)
@@ -915,6 +917,24 @@ try:
     pw_migrate(
         _migrator.drop_not_null('user', 'private_screen_step'),
     )
+except Exception:
+    pass  # Column already nullable or migration not needed
+
+# Auto-migrate (PostgreSQL only): private_screen_list was created NOT NULL, but a brand new user is
+# saved without a value for it (MySQL fills in "" by itself, PostgreSQL refuses the row, so on
+# PostgreSQL nobody new could register) and it is also set to None when the list is empty. Only
+# touches a database that still has the NOT NULL constraint, so it does nothing on later startups
+# (and nothing at all on MySQL, which keeps working as it always did)
+try:
+    from playhouse.migrate import SchemaMigrator, migrate as pw_migrate
+    from src.model.BaseModel import db_obj
+
+    _db = db_obj.get_db()
+    if isinstance(_db, PostgresqlDatabase) and not any(
+        _column.name == "private_screen_list" and _column.null
+        for _column in _db.get_columns("user")
+    ):
+        pw_migrate(SchemaMigrator.from_database(_db).drop_not_null("user", "private_screen_list"))
 except Exception:
     pass  # Column already nullable or migration not needed
 

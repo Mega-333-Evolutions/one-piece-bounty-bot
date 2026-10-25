@@ -40,6 +40,9 @@ SUPPORT_GROUP_DEEPLINK = f"[Support Group]({Env.SUPPORT_GROUP_LINK.get()})"
 
 COMMAND_NOT_IN_REPLY_ERROR = "This command can only be used in a reply to a message"
 COMMAND_IN_REPLY_TO_BOT_ERROR = "This command can't be used in reply to a bot"
+COMMAND_IN_REPLY_TO_ANONYMOUS_ERROR = (
+    "This command can't be used in reply to an anonymous admin or a channel"
+)
 COMMAND_IN_REPLY_TO_ERROR = "This command can't be used in a reply to your own message"
 COMMAND_NOT_ACTIVE_ERROR = "This command is no longer available"
 COMMAND_NOT_ACTIVE_WITH_REPLACEMENT_ERROR = (
