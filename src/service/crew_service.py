@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime
 
 from src.tg_compat.ext import ContextTypes
@@ -8,7 +9,11 @@ from src.model.CrewAbility import CrewAbility
 from src.model.CrewChestSpendingRecord import CrewChestSpendingRecord
 from src.model.CrewMemberChestContribution import CrewMemberChestContribution
 from src.model.DavyBackFight import DavyBackFight
+from src.model.Leaderboard import Leaderboard
+from src.model.LeaderboardUser import LeaderboardUser
+from src.model.LegendaryPirate import LegendaryPirate
 from src.model.User import User
+from src.model.Warlord import Warlord
 from src.model.enums.Emoji import Emoji
 from src.model.enums.Notification import (
     CrewDisbandNotification,
@@ -213,54 +218,179 @@ async def disband_crew(
     crew.save()
 
 
+async def manage_inactive_crews(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Disbands the Crews of the Captains who did not appear in the latest global leaderboards, and
+    warns the Captains who are one leaderboard away from it. Meant to run after a global
+    leaderboard was created
+
+    :param context: The context object
+    :return: None
+    """
+
+    # A Crew that could not be disbanded must not leave the other Captains without their warning
+    disband_failure: Exception | None = None
+    try:
+        await disband_inactive_crews(context)
+    except Exception as e:
+        disband_failure = e
+
+    # After the disbanding, so that a Captain who just lost the Crew is not warned about it
+    await warn_inactive_captains(context)
+
+    # Everything else was done, now let the failure be reported
+    if disband_failure is not None:
+        raise disband_failure
+
+
 async def disband_inactive_crews(context: ContextTypes.DEFAULT_TYPE) -> None:
     """
-    Disbands inactive crews
+    Disbands the Crews which Captain did not appear in any of the latest N global leaderboards, N
+    being CREW_MAINTAIN_MIN_LATEST_LEADERBOARD_APPEARANCE
 
     :param context: The context object
     :return: None
     """
 
-    # Find Crews which Captain has been inactive since before the previous bounty reset
-    inactive_crew_captains = get_inactive_captains()
+    inactive_crew_captains = get_inactive_captains(
+        Env.CREW_MAINTAIN_MIN_LATEST_LEADERBOARD_APPEARANCE.get_int()
+    )
 
     # Disband inactive crews
+    failures: list[Exception] = []
     for captain in inactive_crew_captains:
-        await disband_crew(context, captain, should_notify_captain=True)
+        try:
+            await disband_crew(context, captain, should_notify_captain=True)
+            logging.info(f"Crew of inactive captain {captain.id} was disbanded")
+        except ChatWarning as e:
+            # The Crew can't be disbanded right now (Davy Back Fight in progress or penalty
+            # period), leave it and carry on with the others
+            logging.info(f"Crew of inactive captain {captain.id} was not disbanded: {e}")
+        except Exception as e:
+            # A Crew that fails must not stop the others from being disbanded
+            logging.error(
+                f"Could not disband the Crew of inactive captain {captain.id}", exc_info=True
+            )
+            failures.append(e)
+
+    # Everything that could be disbanded was, now let the failure(s) be reported
+    if failures:
+        raise failures[0]
 
 
-async def warn_inactive_captains(context: ContextTypes.DEFAULT_TYPE) -> None:
+async def warn_inactive_captains(context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Warns inactive captains which Crew will be disbanded in the next leaderboard
+    Warns the Captains who did not appear in any of the latest N - 1 global leaderboards, N being
+    CREW_MAINTAIN_MIN_LATEST_LEADERBOARD_APPEARANCE, that their Crew will be disbanded if they do
+    not appear in the next one
 
     :param context: The context object
-    :return: None
+    :return: The number of Captains warned
     """
 
-    inactive_captains = get_inactive_captains()
+    inactive_captains = get_inactive_captains(
+        Env.CREW_MAINTAIN_MIN_LATEST_LEADERBOARD_APPEARANCE.get_int() - 1
+    )
 
     for captain in inactive_captains:
         await send_notification(context, captain, CrewDisbandWarningNotification())
 
+    return len(inactive_captains)
 
-def get_inactive_captains() -> list[User]:
+
+async def send_crew_disband_startup_warning(context: ContextTypes.DEFAULT_TYPE) -> None:
     """
-    Find captains of a Crew that have not been active since the last bounty reset
-    :return: The inactive captains
+    TEMPORARY - remove this function, its call in main.py and the CREW_DISBAND_STARTUP_WARNING
+    environment variable once it is done (see MIGRATION_NOTES.md).
+
+    Warns on startup the Captains who did not appear in the latest N - 1 global leaderboards,
+    since the leaderboard job only warns them right after the leaderboard in which they missed the
+    N - 1th one. The Captains who were already past it when the disbanding went live would
+    otherwise be disbanded without ever being warned
+
+    :param context: The context object
+    :return: None
     """
 
-    # FIXME - To encourage more Crews, do not currently disband any Crews
-    return []
+    if not Env.CREW_DISBAND_STARTUP_WARNING.get_bool():
+        return
 
-    # previous_bounty_reset: datetime = get_previous_bounty_reset_time()
-    # inactive_captains = User.select().where(
-    #     (User.crew_role == CrewRole.CAPTAIN)
-    #     & (User.last_system_interaction_date < previous_bounty_reset)
-    #     & (User.is_admin == False)
-    #     & (User.is_exempt_from_global_leaderboard_requirements == False)
-    # )
-    #
-    # return inactive_captains
+    warned_captains = await warn_inactive_captains(context)
+    logging.info(f"Crew disband startup warning: {warned_captains} Captain(s) warned")
+
+
+def get_inactive_captains(latest_leaderboard_appearance: int) -> list[User]:
+    """
+    Find the Captains of a Crew that did not appear in any of the latest N global leaderboards
+
+    Only the leaderboards created while the user was the Captain count: someone who created the
+    Crew, or was promoted to Captain, after the oldest of those N leaderboards could not have
+    appeared in all of them, so is not inactive yet.
+
+    Not included, as with the Devil Fruit revocation: admins, users exempted from the global
+    leaderboard requirements and active Warlords and Legendary Pirates
+
+    :param latest_leaderboard_appearance: N, the number of latest global leaderboards
+    :return: The inactive captains. Empty if there are not yet N global leaderboards
+    """
+
+    if latest_leaderboard_appearance < 1:
+        return []
+
+    latest_leaderboards: list[Leaderboard] = Leaderboard.get_latest_n(
+        n=latest_leaderboard_appearance, group=None
+    )
+
+    # Not enough leaderboards to tell
+    if len(latest_leaderboards) < latest_leaderboard_appearance:
+        return []
+
+    # Who appeared in the latest N leaderboards
+    leaderboard_ids: list[int] = [leaderboard.id for leaderboard in latest_leaderboards]
+    leaderboard_users: list[LeaderboardUser] = list(
+        LeaderboardUser.select(LeaderboardUser.leaderboard, LeaderboardUser.user).where(
+            LeaderboardUser.leaderboard.in_(leaderboard_ids)
+        )
+    )
+
+    # Never disband from a leaderboard that has no users at all, it did not complete: nobody would
+    # have appeared in it
+    leaderboard_ids_with_users: set[int] = {lu.leaderboard_id for lu in leaderboard_users}
+    for leaderboard_id in leaderboard_ids:
+        if leaderboard_id not in leaderboard_ids_with_users:
+            logging.warning(f"Leaderboard {leaderboard_id} has no users, no Captain is inactive")
+            return []
+
+    appeared_user_ids: list[int] = list({lu.user_id for lu in leaderboard_users})
+
+    # Captains that have not appeared. Admins, users exempted from the global leaderboard
+    # requirements, Legendary Pirates and Warlords are never inactive
+    captains: list[User] = list(
+        User.select().where(
+            (User.crew_role == CrewRole.CAPTAIN)
+            & (User.is_admin == False)
+            & (User.is_exempt_from_global_leaderboard_requirements == False)
+            & (User.id.not_in(LegendaryPirate.get_active_user_ids()))
+            & (User.id.not_in(Warlord.get_active_user_ids()))
+            & (User.id.not_in(appeared_user_ids))
+        )
+    )
+
+    # Leave out the ones that became Captain after the oldest of the leaderboards. A user became
+    # Captain on the latest of the date they joined the Crew (the one who created it has only that
+    # one) and the date they were promoted (set when promoted to Captain). All are local time
+    oldest_leaderboard_date: datetime = min(lb.date for lb in latest_leaderboards)
+    inactive_captains: list[User] = []
+    for captain in captains:
+        captain_since_dates = [
+            date for date in (captain.crew_join_date, captain.crew_promotion_date) if date
+        ]
+        if captain_since_dates and max(captain_since_dates) > oldest_leaderboard_date:
+            continue
+
+        inactive_captains.append(captain)
+
+    return inactive_captains
 
 
 def add_to_crew_chest(user: User, amount: int) -> None:

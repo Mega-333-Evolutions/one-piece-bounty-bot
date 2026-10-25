@@ -881,10 +881,10 @@ User.create_table()
 
 # Auto-migrate: add new challenge cooldown bucket columns if they don't exist yet
 try:
-    from playhouse.migrate import MySQLMigrator, migrate as pw_migrate
+    from playhouse.migrate import SchemaMigrator, migrate as pw_migrate
     from src.model.BaseModel import db_obj
 
-    _migrator = MySQLMigrator(db_obj.get_db())
+    _migrator = SchemaMigrator.from_database(db_obj.get_db())
     pw_migrate(
         _migrator.add_column('user', 'game_challenge_count', SmallIntegerField(default=0)),
     )
@@ -892,10 +892,10 @@ except Exception:
     pass  # Column already exists
 
 try:
-    from playhouse.migrate import MySQLMigrator, migrate as pw_migrate
+    from playhouse.migrate import SchemaMigrator, migrate as pw_migrate
     from src.model.BaseModel import db_obj
 
-    _migrator = MySQLMigrator(db_obj.get_db())
+    _migrator = SchemaMigrator.from_database(db_obj.get_db())
     pw_migrate(
         _migrator.add_column('user', 'game_cooldown_start_time', DateTimeField(null=True)),
     )
@@ -908,10 +908,10 @@ except Exception:
 # the safeguard against replaying the last completed action on unrelated text messages.
 # Safe to run on every startup: MODIFYing an already-nullable column to NULL is a no-op.
 try:
-    from playhouse.migrate import MySQLMigrator, migrate as pw_migrate
+    from playhouse.migrate import SchemaMigrator, migrate as pw_migrate
     from src.model.BaseModel import db_obj
 
-    _migrator = MySQLMigrator(db_obj.get_db())
+    _migrator = SchemaMigrator.from_database(db_obj.get_db())
     pw_migrate(
         _migrator.drop_not_null('user', 'private_screen_step'),
     )
@@ -922,10 +922,10 @@ except Exception:
 # end_all_conscription (WHERE crew_role == CONSCRIPT AND conscription_end_date < NOW()) with no
 # index, forcing a full table scan on the user table on every single run, 24/7.
 try:
-    from playhouse.migrate import MySQLMigrator, migrate as pw_migrate
+    from playhouse.migrate import SchemaMigrator, migrate as pw_migrate
     from src.model.BaseModel import db_obj
 
-    _migrator = MySQLMigrator(db_obj.get_db())
+    _migrator = SchemaMigrator.from_database(db_obj.get_db())
     pw_migrate(
         _migrator.add_index("user", ("crew_role", "conscription_end_date"), unique=False),
     )
@@ -935,10 +935,10 @@ except Exception:
 # Auto-migrate: index on bounty. Leaderboard generation filters and ORDER BY's on this column
 # with no index, forcing a full table scan + sort on every leaderboard run.
 try:
-    from playhouse.migrate import MySQLMigrator, migrate as pw_migrate
+    from playhouse.migrate import SchemaMigrator, migrate as pw_migrate
     from src.model.BaseModel import db_obj
 
-    _migrator = MySQLMigrator(db_obj.get_db())
+    _migrator = SchemaMigrator.from_database(db_obj.get_db())
     pw_migrate(
         _migrator.add_index("user", ("bounty",), unique=False),
     )
@@ -947,10 +947,10 @@ except Exception:
 
 # Auto-migrate: add language column for the DM language setting
 try:
-    from playhouse.migrate import MySQLMigrator, migrate as pw_migrate
+    from playhouse.migrate import SchemaMigrator, migrate as pw_migrate
     from src.model.BaseModel import db_obj
 
-    _migrator = MySQLMigrator(db_obj.get_db())
+    _migrator = SchemaMigrator.from_database(db_obj.get_db())
     pw_migrate(
         _migrator.add_column(
             "user", "language", CharField(max_length=5, default=LANGUAGE_DEFAULT.value)

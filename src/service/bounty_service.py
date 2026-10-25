@@ -10,6 +10,7 @@ from src.tg_compat.ext import ContextTypes
 import constants as c
 import resources.Environment as Env
 import resources.phrases as phrases
+from src.model.BaseModel import DIVIDE_BY_TWO
 from src.model.BountyGift import BountyGift
 from src.model.BountyLoan import BountyLoan
 from src.model.Crew import Crew
@@ -60,7 +61,7 @@ async def reset_bounty(context: ContextTypes.DEFAULT_TYPE) -> None:
     from src.service.prediction_service import (
         remove_all_bets_from_active_predictions as remove_all_bets,
     )
-    from src.service.crew_service import disband_inactive_crews
+    from src.service.crew_service import manage_inactive_crews
 
     # End all active games
     force_end_all_active_games()
@@ -76,12 +77,12 @@ async def reset_bounty(context: ContextTypes.DEFAULT_TYPE) -> None:
     # Else divide by 2
     conditions: list[tuple[bool, int]] = [
         (
-            (User.bounty / 2) > get_first_new_world().required_bounty,
+            (User.bounty / DIVIDE_BY_TWO) > get_first_new_world().required_bounty,
             get_first_new_world().required_bounty,
         ),
-        ((User.bounty / 2) < Env.DAILY_REWARD_BONUS_BASE_AMOUNT.get_int(), 0),
+        ((User.bounty / DIVIDE_BY_TWO) < Env.DAILY_REWARD_BONUS_BASE_AMOUNT.get_int(), 0),
     ]
-    case_stmt = Case(None, conditions, User.bounty / 2)
+    case_stmt = Case(None, conditions, User.bounty / DIVIDE_BY_TWO)
     User.update(bounty=case_stmt).execute()
 
     # Reset location
@@ -146,8 +147,11 @@ async def reset_bounty(context: ContextTypes.DEFAULT_TYPE) -> None:
     # Reset can promote to Captain
     Crew.update(can_promote_captain=True).execute()
 
-    # Disband inactive crews
-    context.application.create_task(disband_inactive_crews(context))
+    # Disband the Crews of the Captains who did not appear in the latest global leaderboards, and
+    # warn the ones who are one leaderboard away from it. It is done here, once the reset is over,
+    # and not by the leaderboard job as in the other weeks: the flag set above, that lets everybody
+    # create a Crew again, would undo the one the disbanding takes from the Captain
+    context.application.create_task(manage_inactive_crews(context))
 
 
 async def add_or_remove_bounty(
@@ -504,7 +508,8 @@ def get_previous_bounty_reset_time() -> datetime.datetime:
 def should_reset_bounty(run_time: datetime) -> bool:
     """
     Checks if the bounty should be reset given the run time.
-    Bounties are reset on the last leaderboard of every even month.
+    Bounties are reset on the last leaderboard of every even month. The first leaderboard of the
+    next month is the first of the new season, even when it runs on the 1st.
 
     :param run_time: The run time
     :return: Whether the bounty should be reset
@@ -516,11 +521,14 @@ def should_reset_bounty(run_time: datetime) -> bool:
         start_datetime=run_time + datetime.timedelta(milliseconds=1),
     )
 
-    # Reset if this is the last leaderboard of the month and the month before was odd
-    # or today is the first, and the month before was even
-    return (run_time.month != next_run_time.month and (run_time.month - 1) % 2 == 1) or (
-        run_time.day == 1 and (run_time.month - 1) % 2 == 0
-    )
+    # The months must be compared in the time zone the leaderboard is scheduled in, the one of the
+    # next run time. The run time usually comes in UTC, where a leaderboard that runs at 00:00 on
+    # the 1st in Asia/Kolkata is still the day before (Oct 31, 18:30) and would be taken for the
+    # last leaderboard of the previous month
+    run_time = run_time.astimezone(next_run_time.tzinfo)
+
+    # Reset if this is the last leaderboard of the month and the month is even
+    return run_time.month != next_run_time.month and (run_time.month - 1) % 2 == 1
 
 
 def get_transaction_tax(sender: User, receiver: User, base_tax: float) -> float:

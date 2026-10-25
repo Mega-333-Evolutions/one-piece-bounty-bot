@@ -50,7 +50,8 @@ Bring a One-Piece Bounty System to your Telegram Group
 Ensure you have the following dependencies installed on your system:
 
 * **Python**: `3.11 or higher`
-* **MySQL**: `8.0 or higher`
+* **Database**: `MySQL 8.0 or higher` (MariaDB and TiDB work too) or `PostgreSQL` (e.g. Supabase),
+  see `DB_TYPE` below
 
 - Create a Telegram Bot using the [BotFather](https://core.telegram.org/bots#6-botfather) and
   obtain the bot token
@@ -86,11 +87,16 @@ pip install -r requirements.txt
 - `BOT_USERNAME` - Created Bot Username
 - `API_ID` - Telegram API id obtained from my.telegram.org
 - `API_HASH` - Telegram API hash obtained from my.telegram.org
-- `DB_NAME` - MySQL Database Name
-- `DB_HOST` - MySQL Database Host
-- `DB_PORT` - MySQL Database Port
-- `DB_USER` - MySQL Database User
-- `DB_PASSWORD` - MySQL Database Password
+- `DB_TYPE` - `mysql` (default; MySQL, MariaDB, TiDB) or `postgres` (PostgreSQL, Supabase)
+- `DB_NAME` - Database Name
+- `DB_HOST` - Database Host
+- `DB_PORT` - Database Port
+- `DB_USER` - Database User
+- `DB_PASSWORD` - Database Password
+- `DB_SSL_MODE` - Only for `postgres`, default `require`
+
+To move an existing MySQL / TiDB database to PostgreSQL, see `scripts/copy_mysql_to_postgres.py` and
+the PostgreSQL section of `MIGRATION_NOTES.md`.
 
 - `UPDATES_CHAT_ID` - Telegram Chat ID for Updates, used for global leaderboard
 

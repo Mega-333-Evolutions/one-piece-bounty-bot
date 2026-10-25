@@ -130,12 +130,22 @@ def ensure_legendary_pirate_schema() -> None:
         _schema_ensured = True
         return
 
+    # The column types have different names on MySQL and on PostgreSQL
+    is_postgres = isinstance(db, PostgresqlDatabase)
+    datetime_type = "TIMESTAMP" if is_postgres else "DATETIME"
+    boolean_type = "BOOLEAN" if is_postgres else "TINYINT(1)"
+
     existing_columns = {column.name for column in db.get_columns("legendary_pirate")}
     migrations = {
-        "end_date": "ALTER TABLE legendary_pirate ADD COLUMN end_date DATETIME NULL",
-        "original_end_date": "ALTER TABLE legendary_pirate ADD COLUMN original_end_date DATETIME NULL",
+        "end_date": f"ALTER TABLE legendary_pirate ADD COLUMN end_date {datetime_type} NULL",
+        "original_end_date": (
+            f"ALTER TABLE legendary_pirate ADD COLUMN original_end_date {datetime_type} NULL"
+        ),
         "revoke_reason": "ALTER TABLE legendary_pirate ADD COLUMN revoke_reason VARCHAR(999) NULL",
-        "is_permanent": "ALTER TABLE legendary_pirate ADD COLUMN is_permanent TINYINT(1) NOT NULL DEFAULT 0",
+        "is_permanent": (
+            f"ALTER TABLE legendary_pirate ADD COLUMN is_permanent {boolean_type} "
+            "NOT NULL DEFAULT FALSE"
+        ),
     }
 
     for column_name, alter_sql in migrations.items():
@@ -143,9 +153,10 @@ def ensure_legendary_pirate_schema() -> None:
             db.execute_sql(alter_sql)
 
     if "is_permanent" in existing_columns or "is_permanent" in migrations:
+        # TRUE / FALSE and not 1 / 0: PostgreSQL does not compare a boolean column to a number
         db.execute_sql(
-            "UPDATE legendary_pirate SET is_permanent = 1 "
-            "WHERE end_date IS NULL AND revoke_reason IS NULL AND is_permanent = 0"
+            "UPDATE legendary_pirate SET is_permanent = TRUE "
+            "WHERE end_date IS NULL AND revoke_reason IS NULL AND is_permanent = FALSE"
         )
 
     _schema_ensured = True

@@ -27,10 +27,10 @@ GroupChatAutoDelete.create_table()
 # (WHERE delete_date < NOW() ... LIMIT 20) with no index, forcing a full table scan on every
 # single run, 24/7 - a steady, avoidable cost on a usage-billed database.
 try:
-    from playhouse.migrate import MySQLMigrator, migrate as pw_migrate
+    from playhouse.migrate import SchemaMigrator, migrate as pw_migrate
     from src.model.BaseModel import db_obj
 
-    _migrator = MySQLMigrator(db_obj.get_db())
+    _migrator = SchemaMigrator.from_database(db_obj.get_db())
     pw_migrate(
         _migrator.add_index("group_chat_auto_delete", ("delete_date",), unique=False),
     )

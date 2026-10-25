@@ -132,6 +132,11 @@ DB_PORT = Environment("DB_PORT")
 DB_USER = Environment("DB_USER")
 # Database password
 DB_PASSWORD = Environment("DB_PASSWORD")
+# Database type: "mysql" (MySQL, MariaDB, TiDB) or "postgres" (PostgreSQL, Supabase)
+DB_TYPE = Environment("DB_TYPE", default_value="mysql")
+# Encryption of the PostgreSQL connection (disable, allow, prefer, require, verify-ca, verify-full).
+# Only used when DB_TYPE is "postgres". "require" encrypts without checking the server certificate
+DB_SSL_MODE = Environment("DB_SSL_MODE", default_value="require")
 # Log queries
 DB_LOG_QUERIES = Environment("DB_LOG_QUERIES", default_value="False")
 
@@ -938,6 +943,16 @@ CREW_JOIN_REQUEST_COOLDOWN_SAME_CREW_DURATION = Environment(
 CREW_MAX_CHEST_AMOUNT_RESET = Environment(
     "CREW_MAX_CHEST_AMOUNT_RESET", default_value="1000000000"
 )
+# How many leaderboards back the Captain of a Crew has to appear in at least once to maintain the
+# Crew. The Crew is disbanded when its Captain did not appear in any of the latest N global
+# leaderboards, and the Captain is warned after missing the latest N - 1. Default: 4
+CREW_MAINTAIN_MIN_LATEST_LEADERBOARD_APPEARANCE = Environment(
+    "CREW_MAINTAIN_MIN_LATEST_LEADERBOARD_APPEARANCE", default_value="4"
+)
+# TEMPORARY. Whether to warn, every time the bot starts, the Captains who did not appear in the
+# latest N - 1 global leaderboards (see send_crew_disband_startup_warning in crew_service.py).
+# Remove it together with that function. Default: True
+CREW_DISBAND_STARTUP_WARNING = Environment("CREW_DISBAND_STARTUP_WARNING", default_value="True")
 
 # After long in minutes before a Davy Back Fight request expire. Default: 15 minutes
 DAVY_BACK_FIGHT_REQUEST_EXPIRATION_TIME = Environment(

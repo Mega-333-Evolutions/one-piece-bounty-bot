@@ -12,6 +12,7 @@ from src.chat.manage_message import (
     manage_callback as manage_callback_message,
 )
 from src.service.message_service import full_message_send
+from src.service.crew_service import send_crew_disband_startup_warning  # TEMPORARY
 from src.service.leaderboard_service import schedule_pending_special_rank_expiry_jobs
 from src.service.timer_service import set_timers
 
@@ -46,6 +47,14 @@ async def post_init(application: Application) -> None:
     await application.job_queue.start()
     await set_timers(application)
     await schedule_pending_special_rank_expiry_jobs(application)
+
+    # TEMPORARY - warn the Captains who already missed the latest global leaderboards. Remove this
+    # call, the import above, send_crew_disband_startup_warning and the
+    # CREW_DISBAND_STARTUP_WARNING environment variable once it is done
+    application.create_task(
+        send_crew_disband_startup_warning(application.new_context()),
+        name="crew_disband_startup_warning",
+    )
 
 
 async def async_main() -> None:

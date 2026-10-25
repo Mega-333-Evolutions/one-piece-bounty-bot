@@ -533,10 +533,10 @@ Game.create_table()
 # every few minutes (end_inactive_games) with WHERE Game.status == ... and no index, forcing a
 # full table scan on the games table on every single run, 24/7.
 try:
-    from playhouse.migrate import MySQLMigrator, migrate as pw_migrate
+    from playhouse.migrate import SchemaMigrator, migrate as pw_migrate
     from src.model.BaseModel import db_obj
 
-    _migrator = MySQLMigrator(db_obj.get_db())
+    _migrator = SchemaMigrator.from_database(db_obj.get_db())
     pw_migrate(
         _migrator.add_index("game", ("status",), unique=False),
     )

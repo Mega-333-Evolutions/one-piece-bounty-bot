@@ -68,10 +68,10 @@ Group.create_table()
 
 # Auto-migrate: add language column for the group language setting
 try:
-    from playhouse.migrate import MySQLMigrator, migrate as pw_migrate
+    from playhouse.migrate import SchemaMigrator, migrate as pw_migrate
     from src.model.BaseModel import db_obj
 
-    _migrator = MySQLMigrator(db_obj.get_db())
+    _migrator = SchemaMigrator.from_database(db_obj.get_db())
     pw_migrate(
         _migrator.add_column(
             "group", "language", CharField(max_length=5, default=LANGUAGE_DEFAULT.value)

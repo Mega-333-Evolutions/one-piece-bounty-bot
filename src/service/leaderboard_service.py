@@ -21,11 +21,10 @@ from src.model.enums.LeaderboardRank import LeaderboardRankIndex
 from src.model.enums.Location import get_first_new_world, get_last_paradise
 from src.service.bounty_poster_service import reset_bounty_poster_limit
 from src.service.language_service import set_current_language
-from src.service.crew_service import warn_inactive_captains
+from src.service.crew_service import manage_inactive_crews
 from src.service.date_service import (
     default_date_format,
     get_remaining_time_from_next_cron,
-    get_next_run,
 )
 from src.service.devil_fruit_service import (
     revoke_devil_fruit_from_inactive_users,
@@ -168,18 +167,13 @@ async def send_leaderboard(context: ContextTypes.DEFAULT_TYPE) -> None:
     Crew.update(can_accept_new_members=True, can_promote_first_mate=True).execute()
 
     # Reset bounty if last leaderboard of the month
-    now: datetime.datetime = datetime.datetime.now(datetime.timezone.utc)
     if is_bounty_reset:
         context.application.create_task(reset_bounty(context))
-    # Second last leaderboard of the month
-    elif should_reset_bounty(
-        get_next_run(
-            Env.CRON_SEND_LEADERBOARD.get(),
-            start_datetime=now + datetime.timedelta(milliseconds=1),
-        )
-    ):
-        # Warn captains about inactive crews
-        context.application.create_task(warn_inactive_captains(context))
+    else:
+        # Disband the Crews of the Captains who did not appear in the latest global leaderboards
+        # and warn the ones who are one leaderboard away from it. On the leaderboard that resets
+        # the bounty it is done by the reset, once it is over
+        context.application.create_task(manage_inactive_crews(context))
 
     # Revoke eaten Devil Fruits from inactive users
     context.application.create_task(revoke_devil_fruit_from_inactive_users(context))

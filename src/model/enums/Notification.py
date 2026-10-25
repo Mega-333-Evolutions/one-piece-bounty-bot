@@ -364,9 +364,20 @@ class CrewDisbandWarningNotification(Notification):
 
     def build(self) -> str:
         """Builds the notification."""
-        from src.service.bounty_service import get_duration_to_next_bounty_reset
 
-        return self.text.format(get_duration_to_next_bounty_reset())
+        from src.model.Leaderboard import Leaderboard
+        from src.service.message_service import get_message_url
+
+        leaderboard_url = ""
+        latest_global_leaderboards = Leaderboard.get_latest_n(1, group=None)
+        if latest_global_leaderboards:
+            leaderboard_url = get_message_url(
+                message_id=latest_global_leaderboards[0].message_id,
+                chat_id=Env.UPDATES_CHAT_ID.get(),
+                chat_username=Env.UPDATES_CHAT_USERNAME.get_or_none(),
+            )
+
+        return self.text.format(leaderboard_url)
 
 
 class GameTurnNotification(Notification):

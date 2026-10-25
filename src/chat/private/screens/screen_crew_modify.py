@@ -121,7 +121,7 @@ async def manage(
         [
             Keyboard(
                 phrases.PVT_KEY_CREW_EDIT_ALLOW_VIEW_IN_SEARCH.format(
-                    get_enabled_emoji(not crew.allow_view_in_search)
+                    get_enabled_emoji(crew.allow_view_in_search)
                 ),
                 screen=inbound_keyboard.screen,
                 info={CrewModifyReservedKeys.TOGGLE_ALLOW_VIEW_IN_SEARCH: True},
@@ -134,7 +134,7 @@ async def manage(
         [
             Keyboard(
                 phrases.PVT_KEY_CREW_EDIT_ALLOW_JOIN_FROM_SEARCH.format(
-                    get_enabled_emoji(not crew.allow_join_from_search)
+                    get_enabled_emoji(crew.allow_join_from_search)
                 ),
                 screen=inbound_keyboard.screen,
                 info={CrewModifyReservedKeys.TOGGLE_ALLOW_JOIN_FROM_SEARCH: True},
@@ -147,7 +147,7 @@ async def manage(
         [
             Keyboard(
                 phrases.PVT_KEY_CREW_EDIT_AUTO_ACCEPT_JOIN.format(
-                    get_enabled_emoji(not crew.auto_accept_join)
+                    get_enabled_emoji(crew.auto_accept_join)
                 ),
                 screen=inbound_keyboard.screen,
                 info={CrewModifyReservedKeys.TOGGLE_ALLOW_AUTO_ACCEPT_JOIN: True},
@@ -160,7 +160,7 @@ async def manage(
         [
             Keyboard(
                 phrases.PVT_KEY_CREW_EDIT_ALLOW_DAVY_BACK_FIGHT_REQUEST.format(
-                    get_enabled_emoji(not crew.allow_davy_back_fight_request)
+                    get_enabled_emoji(crew.allow_davy_back_fight_request)
                 ),
                 screen=inbound_keyboard.screen,
                 info={CrewModifyReservedKeys.TOGGLE_ALLOW_DAVY_BACK_FIGHT_REQUEST: True},

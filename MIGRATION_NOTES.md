@@ -1563,6 +1563,278 @@ games that do have an opponent - won, lost, drawn, and accepted-then-expired - w
 to the previous code for several wagers and are identical. **What I could not verify:** the
 real clock and Telegram (the dates were moved in the database).
 
+## Crews are disbanded when the Captain misses 4 global leaderboards in a row - it had been switched off
+
+**The rule.** A Crew is disbanded when its Captain was in none of the latest 4 global
+leaderboards. The Captain gets a warning after missing the 3rd one in a row ("You have not
+appeared in the last 3 global leaderboards. If you do not appear in the next leaderboard, your
+Crew will be disbanded.", linking the latest global leaderboard, in English and Persian), so
+there is one leaderboard in between to do something about it. Being in one leaderboard starts
+the count over. "Appearing" is the same measure the Devil Fruit revocation uses: a row of the
+Captain in the global leaderboard (the one without a group). The 4 is the new setting
+`CREW_MAINTAIN_MIN_LATEST_LEADERBOARD_APPEARANCE` (default 4; the warning is always one
+less).
+
+**When it runs.** `manage_inactive_crews` (crew_service.py) runs after every weekly global
+leaderboard: first it disbands, then it warns, so a Captain who has just lost the Crew is not
+warned about it. The leaderboard job (`send_leaderboard`) starts it after the leaderboard is
+created. On the leaderboard that resets the bounties, `reset_bounty` starts it at its end
+instead (as it already did for the old disbanding): `reset_bounty` sets `can_create_crew` back
+to true for everybody, and the Captain of a Crew disbanded now must not get that back - as
+with any disbanding, he can't create a new Crew until the next reset.
+
+**What it does to a Crew.** `disband_crew` (unchanged): every member is taken out of the Crew,
+the Crew is marked inactive and everybody, the Captain included, gets "Your Crew has been
+disbanded". A Crew in a Davy Back Fight or serving its penalty can't be disbanded
+(`disband_crew` refuses): it is skipped and looked at again at the next leaderboard, and its
+Captain keeps getting the warning until then. One Crew failing for another reason doesn't stop
+the others: they are disbanded and warned first, then the first failure is raised so it
+reaches `ERROR_LOG_CHAT_ID`.
+
+**Who is never disbanded.** Admins, users exempt from the global leaderboard requirements,
+active Warlords and active Legendary Pirates (the same exemptions as the Devil Fruit
+revocation); first mates and conscripts are not Captains, so they don't count. A Captain who
+created the Crew, or was promoted to Captain, after the oldest of the leaderboards being looked
+at only counts the leaderboards since then: a new Crew isn't disbanded in its first week (the
+date is the later of the Captain's `crew_join_date` and `crew_promotion_date`; a Captain with
+neither recorded is treated as an old one). Nothing is disbanded while there are fewer than 4
+global leaderboards, or when any of the 4 has nobody in it (such a leaderboard did not
+complete, and everybody would have "missed" it).
+
+**Why it was off.** `get_inactive_captains()` was a bare `return []` under the FIXME "To
+encourage more Crews, do not currently disband any Crews", with the real query commented out
+below it (the PTB source is the same). So nothing was ever warned or disbanded. That
+function now takes the number of leaderboards and implements the rule above. The
+activity-based version I delivered earlier in this round (Captains who hadn't used the bot
+during the bounty season) is gone completely, including the optional argument it had added to
+`get_previous_bounty_reset_time`, which is back to what it was.
+
+**Check this before deploying: who appears in the global leaderboard.** Only about 20
+ordinary players do: the Pirate King (at most 1), the Emperors (4) and First Mates (4) of the
+New World, 11 Supernovas of Paradise, plus the active Warlords and Legendary Pirates. Every
+Captain outside that list never appears, so with this rule most Captains will be warned
+and then lose their Crew after 4 leaderboards - it is the same rule as the Devil Fruit
+revocation, but it affects far more people. If that is not the intent, raise
+`CREW_MAINTAIN_MIN_LATEST_LEADERBOARD_APPEARANCE` (an environment setting, read when the bot
+starts), or say what else should count as appearing.
+
+**TEMPORARY: the warning on startup.** The leaderboard job only warns a Captain right after
+the leaderboard in which he missed the 3rd one, so the Captains who are already there when this
+goes live would be disbanded without ever being warned. For that, every time the bot starts
+`main.py` (`post_init`) calls `send_crew_disband_startup_warning`, which warns the Captains who
+were in none of the latest 3 global leaderboards (it disbands nothing). A Captain who was in
+none of the latest 3 and does not appear in the next leaderboard loses the Crew at it, so the
+warning is the only notice. Until it is removed it is sent again on every restart: to stop it
+without touching the code, set `CREW_DISBAND_STARTUP_WARNING=False`. **To remove it** (when it
+is done): delete `send_crew_disband_startup_warning` in crew_service.py, the import and the
+call at the end of `post_init` in main.py (both marked TEMPORARY) and the
+`CREW_DISBAND_STARTUP_WARNING` setting in resources/Environment.py. Nothing else depends on
+them.
+
+**On verification:** the real `get_inactive_captains`, `disband_inactive_crews`,
+`warn_inactive_captains`, `manage_inactive_crews`, `send_crew_disband_startup_warning`,
+`disband_crew`, `send_leaderboard`, `reset_bounty` and `main.post_init`, and the real
+notification classes in English and Persian, against an in-memory database with the project's
+real tables (SQLite, with MySQL's `IF()` added for one raw query `reset_bounty` runs); only the
+Telegram send was replaced, and the clock where the leaderboard job reads it. 98 checks, in 9
+server time zones: who is returned for every N from 1 to 7 over the same leaderboards; fewer
+leaderboards than N; admin / exempt / Warlord / Legendary Pirate (active and expired); first
+mates and conscripts; new and newly promoted Captains; an empty leaderboard; the order of the
+leaderboards across the year (2026 has a week 53); group leaderboards not counting; week by
+week from the 3rd miss to the disbanding (the warning on the 3rd, the disbanding and the
+disband notifications on the 4th, the count starting over after an appearance); Crews in a
+Davy Back Fight or penalty skipped without stopping the others; one Crew failing without
+blocking the others or the warnings; the setting changed to 1, 2 and 6; the startup warning
+(on, off, started by `post_init`); and the weekly job at Oct 18, Oct 25 (the real bounty reset
+runs, then the Crew management, and the disbanded Captain can't create a Crew while everybody
+else can), Nov 1 and Nov 8. Before this change `get_inactive_captains()` returned `[]`, and a
+Captain who missed 6 leaderboards was neither warned nor disbanded. **What I could not verify:**
+Telegram, the real clock, MySQL (the tests ran on SQLite), and your data - how many Captains
+this will affect.
+
+## Bounty reset: the leaderboard on the 1st of a month reset the bounties a second time
+
+**What was happening.** The weekly leaderboard job decides whether it is a bounty reset with
+`should_reset_bounty(now)`. Bounties are meant to reset only on the last leaderboard of every
+even month (Oct 25, 2026); the next leaderboard (Nov 1) is the first of the new season. The
+check flagged that one too, so `reset_bounty` - bounties halved (capped), open games ended,
+bets removed, locations reset - would have run a second time, a week later. The code is the
+same in the PTB source, so the same applied to Mar 1, 2026, a week after the Feb 22 reset.
+Two separate causes:
+- The job runs at Sunday 00:00 in the bot's time zone (`TZ`, Asia/Kolkata by default -
+  `main.py` sets it) but passes `now` in UTC, and the month was read from that UTC time. The
+  Nov 1 leaderboard, 00:00 IST, is Oct 31 18:30 in UTC: October, an even month, with the next
+  leaderboard in November - "the last leaderboard of October".
+- An extra rule - "or today is the first, and the month before was even" - flagged any
+  leaderboard on the 1st of an odd month: Nov 1 on a server in UTC. With the mismatch above it
+  also fired on the 2nd, which is still the 1st in UTC: May 2 2027, Jan 2 2028 and Jul 2 2028
+  would each have reset the bounties a second time as well.
+
+**Fix:** `should_reset_bounty` compares the months in the time zone the leaderboard is scheduled
+in (that of the next run) and the extra rule is gone: the bounties reset on the last
+leaderboard of Feb / Apr / Jun / Aug / Oct / Dec, by the date in the bot's time zone, and
+on no other. Oct 25 and every other real reset are unchanged; the only leaderboards that
+change are the extra ones above (Mar 1 and Nov 1, 2026; May 2, 2027; Jan 2 and Jul 2, 2028).
+Everything that asks the same function follows: the "next bounty reset" countdown and the Devil
+Fruit cooldown that ends at it - after Oct 25 the next reset is now Dec 27, where it used to
+say Nov 1.
+
+**Not changed, worth knowing:** nothing is repaired for resets that already ran, and
+`reset_bounty` itself still has no guard against running twice in a row - the calendar is what
+prevents it.
+
+**On verification:** the real `should_reset_bounty`, `get_next_bounty_reset_time`,
+`get_previous_bounty_reset_time` and `send_leaderboard` (Telegram sending replaced, the clock
+moved), at the real run time of each of the 157 Sunday leaderboards from Jan 2026 to Dec
+2028, against an independent calendar (the last Sunday, by local date, of an even month), in 9
+server time zones (UTC, Asia/Kolkata, Asia/Kathmandu, Rome, Auckland, Kiritimati, Los
+Angeles, Honolulu, São Paulo). Previous code (run in IST and UTC): `send_leaderboard` calls
+`reset_bounty` on Nov 1 and on Mar 1, and the check flags the Sundays listed above. New code:
+it matches the calendar on every leaderboard in every zone, Oct 25 resets and Nov 1 doesn't,
+and the next reset after Oct 25 is Dec 27. **What I could not verify:** the real clock and Telegram; other time zones
+were simulated by changing the process's `TZ`.
+
+## New: the bot can run on PostgreSQL (e.g. Supabase) instead of MySQL / TiDB
+
+**Why.** TiDB Starter stops working when its monthly request units run out. The bot's data is
+small (the database measured 5.2 MB) and the server is in US East (Virginia), so what is needed
+is a free database in that region that doesn't have a request-unit meter: PostgreSQL on
+Supabase's free plan, created in the region "East US (North Virginia)" (`us-east-1`). A NoSQL
+database would not suit the bot better: it is built on relational queries (joins, sums, ranks,
+76 foreign keys over 41 tables) and moving to NoSQL means rewriting about 57 files. PostgreSQL
+needed the small changes listed below.
+
+**Nothing changes until you switch.** `DB_TYPE` defaults to `mysql`, and the MySQL / TiDB path
+behaves as before (the old and the new code were run on the same data on MariaDB and give the
+same results). The bot talks to PostgreSQL only when `DB_TYPE=postgres`.
+
+**New settings** (`resources/Environment.py`):
+- `DB_TYPE` - `mysql` (default: MySQL, MariaDB, TiDB) or `postgres` (PostgreSQL, Supabase).
+- `DB_SSL_MODE` - only used with `postgres`; default `require` (encrypted connection).
+- `DB_NAME`, `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD` - the same variables as before, with
+  the values of whichever database `DB_TYPE` points to.
+
+**Setting up Supabase** (free plan):
+1. Create a project at supabase.com. For the region choose **East US (North Virginia)** from the
+   list of specific regions, not the automatic ("smart") choice, which can pick another one.
+   Choose a database password and keep it: it is the `DB_PASSWORD`.
+2. In the project click **Connect** and copy the **Session pooler** connection string. Don't use
+   "Direct connection": it only works over IPv6 (unless you buy the IPv4 add-on) and many hosts
+   have no IPv6. The Session pooler works over IPv4 on port 5432. The string looks like
+   `postgresql://postgres.<project-ref>:<password>@<host>:5432/postgres`.
+3. From it: `DB_HOST` = `<host>`, `DB_PORT` = `5432`, `DB_USER` = `postgres.<project-ref>` (with
+   the project reference, not just `postgres`), `DB_PASSWORD` = the password, `DB_NAME` =
+   `postgres`, and `DB_TYPE` = `postgres`. Leave `DB_SSL_MODE` alone.
+
+**Moving the existing data** with `scripts/copy_mysql_to_postgres.py`, once:
+1. On a computer with Python 3.11, in the project folder: `pip install -r requirements.txt`.
+2. Make a file, e.g. `.env.postgres`, with `DB_TYPE` and the `DB_*` variables of the **new**
+   database (step 3 above) and, for the **old** database, `SRC_DB_HOST`, `SRC_DB_PORT`,
+   `SRC_DB_USER`, `SRC_DB_PASSWORD`, `SRC_DB_NAME` (today's `DB_*` values of TiDB). The script
+   loads the bot's code, which refuses to start without `BOT_TOKEN`, `BOT_ID`, `BOT_USERNAME`,
+   `API_ID` and `API_HASH`: put them in the file too (the script doesn't connect to Telegram, so
+   placeholders are fine).
+3. Stop the bot: what it writes to the old database after the copy would be lost.
+4. Run `python scripts/copy_mysql_to_postgres.py --env-file .env.postgres` and type `copy`.
+5. When it prints `Done: ... rows in 41 tables copied and checked`, set `DB_TYPE=postgres` and the
+   new `DB_*` values wherever the bot runs (Render's environment variables) and start the bot.
+
+What the script does: it only reads the old database; creates the tables in the new one the way
+the bot does; copies every row with its id; sets the id counters so new rows continue after the
+copied ones; then checks every table (row count and the sum of every number column) against the
+old one. All of it is one transaction: if anything is wrong nothing is written to the new
+database, and the message says what to do. PostgreSQL can't store the NUL character in a text, so
+it is removed if one exists (the script says how many). It refuses to run when the new database
+already has rows; `--wipe-target` empties the bot's tables there first to copy again.
+**Going back** is `DB_TYPE=mysql` and the old `DB_*` values: the old database is untouched, as it
+was when the bot was stopped (what happened on PostgreSQL after that is not in it).
+
+**Supabase free plan: what to know.**
+- 500 MB database (the bot's is about 5 MB) and 5 GB of traffic a month.
+- A project with too little database activity for a week is paused. A bot that queries it all
+  day doesn't qualify; if it ever happens, press Resume in the dashboard (data is kept).
+- **There are no automatic backups on the free plan.** Export the database from time to time,
+  e.g. with `pg_dump` and the Session pooler connection string (needs the PostgreSQL client
+  tools; I did not test this one). Keeping the old TiDB cluster for a while is a backup of the
+  data as it was on the day of the switch.
+- Text comparisons with `=` / `LIKE` are case-sensitive on both TiDB's default collation and
+  PostgreSQL, so searches behave the same. Sorting a text column (names with capital letters or
+  accents) can come out in a slightly different order on PostgreSQL.
+
+**What changed in the code** (everything else is untouched):
+- `resources/Database.py` picks MySQL or PostgreSQL from `DB_TYPE` (anything else raises a clear
+  error naming the accepted values). The PostgreSQL connection has a 10 second connect timeout
+  and TCP keepalives so that a silently dropped connection is noticed in about a minute, and
+  it reconnects by itself when the server closes the connection (peewee only recognizes MySQL's
+  messages for that, so the PostgreSQL ones were added). `requirements.txt` gets
+  `psycopg2-binary`; `resources/Environment.py` gets the two settings.
+- **Dividing by two.** The bounty reset halves bounties (`User.bounty / 2`, 3 places in
+  `bounty_service.py`) and `Crew.reset_level` halves levels. MySQL divides with decimals and
+  rounds when it saves (5 / 2 gives 3); PostgreSQL divides whole numbers and rounds down (5 / 2
+  gives 2), so every reset would have left people a little lower than on MySQL. The divisor is
+  now `DIVIDE_BY_TWO` (`SQL("2.0")`, in `BaseModel.py`), which gives the same results on both.
+  Writing `2.0` as a number doesn't work: peewee turns it into the integer 2 for an integer
+  column, which is why it is written as SQL.
+- `Crew.set_is_full_for_all_crews` was a hand-written MySQL query (`IF(...)`, and the table name
+  `user` without quotes, a reserved word on PostgreSQL). It is now a normal peewee update.
+- `ensure_legendary_pirate_schema` (`LegendaryPirate.py`) wrote MySQL column types (`DATETIME`,
+  `TINYINT`) in its `ALTER TABLE`; it now writes the types of the database in use.
+- 10 startup migrations (6 in `User.py`, one each in `Group.py`, `Game.py`, `BountyLoan.py`,
+  `GroupChatAutoDelete.py`) used `MySQLMigrator` directly. On PostgreSQL its add-column and
+  drop-not-null steps fail (they use MySQL's `DESCRIBE`) and the `try/except: pass` around them
+  would have hidden it, so a column added by a future update would never be created. They use
+  `SchemaMigrator.from_database(...)`, which gives the right migrator for the database in use.
+  (Creating an index worked on both.)
+- `scripts/copy_mysql_to_postgres.py` is new, as described above.
+
+**On verification.** On a real PostgreSQL 16.2 and a real MariaDB 10.11 (the sandbox has no
+TiDB, so MariaDB stands in for MySQL), through the bot's own `Database.py`:
+- The 6 test suites that touch the real tables: 233 of 233 checks pass on each. All the older
+  suites (525 checks, on SQLite) still pass.
+- A smoke test filled all 41 tables with generated rows in every column (unicode, NULLs, big
+  numbers, self links), then called every plain method of every model on several rows and the
+  query-heavy service functions: 562 query calls, 0 SQL errors on PostgreSQL. As a control, the
+  old hand-written query of `set_is_full_for_all_crews` is flagged by the same harness.
+- Results of the halving, rounding and the rest of the changed expressions are identical on
+  PostgreSQL and MariaDB.
+- Copy script: 32 checks (from a SQLite copy of the tables, with generated data in every column
+  of every table), then the actual command, MariaDB to PostgreSQL: 1,230 rows in 41 tables came
+  across identical, row by row; the id counters continue after the last row; answering `no`
+  writes nothing; a second run is refused; `--wipe-target` copies again.
+
+**What I could not verify:** Supabase itself and TiDB (no access from here), Telegram, your real
+data (the tests used generated rows), and the speed of the bot against Supabase from your host.
+The code paths that need a live Telegram chat were not run on PostgreSQL; the database calls
+they make were, through the models and services they use.
+
+## Crew settings: four of the five ✅/❌ buttons showed the opposite of the setting; the emoji now comes after the text
+
+**What was happening.** On the Crew settings screen, "Allow search", "Allow join", "Auto-accept
+join" and "Allow Davy Back Fight request" showed ✅ when the setting was disabled and ❌ when it
+was enabled (a Crew with the default settings, the first four on, showed four ❌). Only
+"Auto-accept Davy Back Fight request" showed the real value. The "Current setting: ..." lines of
+the message were right, so the screen contradicted itself. `screen_crew_modify.py` built the
+emoji of those four with `get_enabled_emoji(not crew.<setting>)`; the `not` is in the PTB source
+too (the same lines), so it is not a Telethon-specific bug.
+
+**Fix:** the `not` is gone, so every button shows the value its setting has now, and pressing it
+shows the new value. The emoji of the five buttons also comes after the text now ("Allow search
+✅"), in English and in Persian (`PVT_KEY_CREW_EDIT_*` in `phrases_en.py` and `phrases_fa.py`, with
+the `{}` moved to the end). The colors of the buttons are not affected: they are chosen from the
+words of the button without the emoji, and these five have no color. **Not changed:** the
+"Current setting: ✅ Enabled / ❌ Disabled" lines of the message, because that emoji belongs to the
+"Enabled" / "Disabled" phrases that other screens share.
+
+**On verification:** the real `screen_crew_modify.manage` on an in-memory SQLite database with the
+project's real tables and real Crew / User rows, for all 32 combinations of the five settings in
+English and in Persian (160 buttons each). Each button ends with the emoji of the stored value and
+doesn't start with one; the "Current setting" lines show the stored values; pressing each of the
+five buttons, from enabled and from disabled, changes only that setting and only that button; a
+plain member sees the same buttons but gets the "only the Captain or First Mate" warning when
+pressing one, and a First Mate can change a setting. On the previous code 26 of the test's 93
+checks fail, as reported; now all 93 pass. **What I could not verify:** how Telegram draws it on
+your phone, mainly the Persian text (right to left) with the emoji at the end.
+
 ## Known limitations / things worth knowing
 
 A few places where Telethon's model doesn't map 1:1 onto Bot API's, in order

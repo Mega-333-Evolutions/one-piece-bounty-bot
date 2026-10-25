@@ -4,7 +4,7 @@ from typing import Any
 from peewee import *
 
 import resources.Environment as Env
-from src.model.BaseModel import BaseModel, db_obj
+from src.model.BaseModel import BaseModel, DIVIDE_BY_TWO
 from src.model.enums.GameStatus import GameStatus
 from src.model.enums.crew.CrewChestSpendingReason import CrewChestSpendingReason
 from src.model.enums.crew.CrewLevelUpgradeType import CrewLevelUpgradeType
@@ -299,21 +299,25 @@ class Crew(BaseModel):
         conditions: list[tuple[bool, int]] = [
             # If level / 2 is higher than allowed after reset, set to max
             (
-                (Crew.level / 2) > Env.CREW_MAX_LEVEL_AFTER_RESET.get_int(),
+                (Crew.level / DIVIDE_BY_TWO) > Env.CREW_MAX_LEVEL_AFTER_RESET.get_int(),
                 Env.CREW_MAX_LEVEL_AFTER_RESET.get_int(),
             ),
             # If level / 2 is lower than 1 after reset, set to 1
-            ((Crew.level / 2) < 1, 1),
+            ((Crew.level / DIVIDE_BY_TWO) < 1, 1),
         ]
 
         # Else, set to level / 2
-        case_stmt = Case(None, conditions, Crew.level / 2)
+        case_stmt = Case(None, conditions, Crew.level / DIVIDE_BY_TWO)
         Crew.update(level=case_stmt).execute()
 
         # Reset max allowed members and abilities
         Crew.update(
-            max_members=(Env.CREW_MAX_MEMBERS.get_int() + fn.ROUND((Crew.level - 1) / 2)),
-            max_abilities=(Env.CREW_MAX_ABILITIES.get_int() + fn.FLOOR((Crew.level - 1) / 2)),
+            max_members=(
+                Env.CREW_MAX_MEMBERS.get_int() + fn.ROUND((Crew.level - 1) / DIVIDE_BY_TWO)
+            ),
+            max_abilities=(
+                Env.CREW_MAX_ABILITIES.get_int() + fn.FLOOR((Crew.level - 1) / DIVIDE_BY_TWO)
+            ),
         ).execute()
 
         # Reset is full attribute
@@ -371,13 +375,13 @@ class Crew(BaseModel):
         :return: None
         """
 
-        raw_query = (
-            "update crew"
-            " set is_full = IF(((select count(*) from user where crew_id = crew.id) <"
-            " crew.max_members), 0, 1)"
-            " where true;"
-        )
-        db_obj.get_db().execute_sql(raw_query)
+        from src.model.User import User
+
+        # A crew is full when it has at least max_members members. Written with the query builder
+        # instead of raw SQL so that it runs on both MySQL and PostgreSQL (the raw query used IF(),
+        # which PostgreSQL does not have, and the table name "user", which is a reserved word there)
+        member_count = User.select(fn.COUNT(User.id)).where(User.crew == Crew.id)
+        Crew.update(is_full=(member_count >= Crew.max_members)).execute()
 
     def get_active_davy_back_fight(self) -> Any:
         """
