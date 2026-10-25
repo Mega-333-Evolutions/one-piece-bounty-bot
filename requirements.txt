@@ -13,7 +13,7 @@ pymysql~=1.1.1
 # PostgreSQL driver, used when DB_TYPE=postgres (e.g. Supabase). pymysql is used when DB_TYPE=mysql
 psycopg2-binary>=2.9.10,<3
 pytz~=2023.3
-cryptography>=42.0.0
+cryptography>=49.0.0
 requests~=2.31.0
 # Optional: lets the bot download images like a real Chrome (TLS handshake included) when the host
 # of the images (Fandom's, for Who's Who) refuses the plain Python downloads. The bot works without it.
