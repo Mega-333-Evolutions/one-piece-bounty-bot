@@ -949,10 +949,6 @@ CREW_MAX_CHEST_AMOUNT_RESET = Environment(
 CREW_MAINTAIN_MIN_LATEST_LEADERBOARD_APPEARANCE = Environment(
     "CREW_MAINTAIN_MIN_LATEST_LEADERBOARD_APPEARANCE", default_value="4"
 )
-# TEMPORARY. Whether to warn, every time the bot starts, the Captains who did not appear in the
-# latest N - 1 global leaderboards (see send_crew_disband_startup_warning in crew_service.py).
-# Remove it together with that function. Default: True
-CREW_DISBAND_STARTUP_WARNING = Environment("CREW_DISBAND_STARTUP_WARNING", default_value="True")
 
 # After long in minutes before a Davy Back Fight request expire. Default: 15 minutes
 DAVY_BACK_FIGHT_REQUEST_EXPIRATION_TIME = Environment(

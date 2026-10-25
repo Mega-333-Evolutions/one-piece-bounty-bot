@@ -1618,26 +1618,23 @@ revocation, but it affects far more people. If that is not the intent, raise
 `CREW_MAINTAIN_MIN_LATEST_LEADERBOARD_APPEARANCE` (an environment setting, read when the bot
 starts), or say what else should count as appearing.
 
-**TEMPORARY: the warning on startup.** The leaderboard job only warns a Captain right after
-the leaderboard in which he missed the 3rd one, so the Captains who are already there when this
-goes live would be disbanded without ever being warned. For that, every time the bot starts
-`main.py` (`post_init`) calls `send_crew_disband_startup_warning`, which warns the Captains who
-were in none of the latest 3 global leaderboards (it disbands nothing). A Captain who was in
-none of the latest 3 and does not appear in the next leaderboard loses the Crew at it, so the
-warning is the only notice. Until it is removed it is sent again on every restart: to stop it
-without touching the code, set `CREW_DISBAND_STARTUP_WARNING=False`. **To remove it** (when it
-is done): delete `send_crew_disband_startup_warning` in crew_service.py, the import and the
-call at the end of `post_init` in main.py (both marked TEMPORARY) and the
-`CREW_DISBAND_STARTUP_WARNING` setting in resources/Environment.py. Nothing else depends on
-them.
+**The warning on startup was temporary and is now removed.** The leaderboard job only warns a
+Captain right after the leaderboard in which he missed the 3rd one, so the Captains who were
+already there when disbanding went live would have lost the Crew without any notice. For that,
+every start of the bot sent the warning to the Captains who were in none of the latest 3 global
+leaderboards (`send_crew_disband_startup_warning`, started by `post_init` in `main.py`). At your
+word that it was done, it is gone: the function, its import and call in `main.py`, and the
+`CREW_DISBAND_STARTUP_WARNING` setting. Starting the bot warns nobody now. The warning that the
+weekly leaderboard job sends after the 3rd missed leaderboard is unchanged. If
+`CREW_DISBAND_STARTUP_WARNING` is still set where the bot runs, it is ignored and can be
+deleted.
 
 **On verification:** the real `get_inactive_captains`, `disband_inactive_crews`,
-`warn_inactive_captains`, `manage_inactive_crews`, `send_crew_disband_startup_warning`,
-`disband_crew`, `send_leaderboard`, `reset_bounty` and `main.post_init`, and the real
-notification classes in English and Persian, against an in-memory database with the project's
-real tables (SQLite, with MySQL's `IF()` added for one raw query `reset_bounty` runs); only the
-Telegram send was replaced, and the clock where the leaderboard job reads it. 98 checks, in 9
-server time zones: who is returned for every N from 1 to 7 over the same leaderboards; fewer
+`warn_inactive_captains`, `manage_inactive_crews`, `disband_crew`, `send_leaderboard`,
+`reset_bounty` and `main.post_init`, and the real notification classes in English and Persian,
+against an in-memory database with the project's real tables (SQLite, with MySQL's `IF()` added
+for one raw query `reset_bounty` runs); only the Telegram send was replaced, and the clock where
+the leaderboard job reads it. 100 checks, in 9 server time zones: who is returned for every N from 1 to 7 over the same leaderboards; fewer
 leaderboards than N; admin / exempt / Warlord / Legendary Pirate (active and expired); first
 mates and conscripts; new and newly promoted Captains; an empty leaderboard; the order of the
 leaderboards across the year (2026 has a week 53); group leaderboards not counting; week by
@@ -1645,7 +1642,9 @@ week from the 3rd miss to the disbanding (the warning on the 3rd, the disbanding
 disband notifications on the 4th, the count starting over after an appearance); Crews in a
 Davy Back Fight or penalty skipped without stopping the others; one Crew failing without
 blocking the others or the warnings; the setting changed to 1, 2 and 6; the startup warning
-(on, off, started by `post_init`); and the weekly job at Oct 18, Oct 25 (the real bounty reset
+being gone (function, setting and every mention) and starting the bot, with Captains who
+missed 3 and 5 leaderboards in the database, warning nobody while the weekly warning still
+works; and the weekly job at Oct 18, Oct 25 (the real bounty reset
 runs, then the Crew management, and the disbanded Captain can't create a Crew while everybody
 else can), Nov 1 and Nov 8. Before this change `get_inactive_captains()` returned `[]`, and a
 Captain who missed 6 leaderboards was neither warned nor disbanded. **What I could not verify:**

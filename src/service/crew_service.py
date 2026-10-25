@@ -298,27 +298,6 @@ async def warn_inactive_captains(context: ContextTypes.DEFAULT_TYPE) -> int:
     return len(inactive_captains)
 
 
-async def send_crew_disband_startup_warning(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    TEMPORARY - remove this function, its call in main.py and the CREW_DISBAND_STARTUP_WARNING
-    environment variable once it is done (see MIGRATION_NOTES.md).
-
-    Warns on startup the Captains who did not appear in the latest N - 1 global leaderboards,
-    since the leaderboard job only warns them right after the leaderboard in which they missed the
-    N - 1th one. The Captains who were already past it when the disbanding went live would
-    otherwise be disbanded without ever being warned
-
-    :param context: The context object
-    :return: None
-    """
-
-    if not Env.CREW_DISBAND_STARTUP_WARNING.get_bool():
-        return
-
-    warned_captains = await warn_inactive_captains(context)
-    logging.info(f"Crew disband startup warning: {warned_captains} Captain(s) warned")
-
-
 def get_inactive_captains(latest_leaderboard_appearance: int) -> list[User]:
     """
     Find the Captains of a Crew that did not appear in any of the latest N global leaderboards
