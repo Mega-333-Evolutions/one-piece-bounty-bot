@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import time
 from datetime import datetime, timedelta
 from typing import Tuple, Callable
 
@@ -132,6 +133,47 @@ def end(db: MySQLDatabase) -> None:
     db.close()
 
 
+# The same unexpected error is sent to ERROR_LOG_CHAT_ID once per this many seconds, not on every tap:
+# a command that fails for everybody would otherwise flood the chat (and Telegram's flood limit)
+REPORT_SAME_ERROR_EVERY_SECONDS = 600
+_reported_errors: dict[str, float] = {}
+
+
+async def report_unexpected_error(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, error: Exception
+) -> None:
+    """
+    Send an unexpected error (the one being handled) with its full traceback to ERROR_LOG_CHAT_ID,
+    unless the same error was already sent in the last REPORT_SAME_ERROR_EVERY_SECONDS seconds
+    :param update: The update that was being handled
+    :param context: The context
+    :param error: The error
+    :return: None
+    """
+
+    frames = traceback.extract_tb(error.__traceback__)
+    where = f"{frames[-1].filename}:{frames[-1].lineno}" if frames else ""
+    message_first_line = (str(error).splitlines() or [""])[0]
+    key = f"{type(error).__name__}|{message_first_line}|{where}"
+
+    now = time.monotonic()
+    last_reported = _reported_errors.get(key)
+    if last_reported is not None and now - last_reported < REPORT_SAME_ERROR_EVERY_SECONDS:
+        return
+
+    if len(_reported_errors) > 500:
+        _reported_errors.clear()
+    _reported_errors[key] = now
+
+    try:
+        await context.bot.report_error(
+            f"Error handling update:\n{update}\n\n{traceback.format_exc()}"
+        )
+    except Exception:
+        # Reporting an error must never become another one: it runs inside the handlers of the commands
+        logging.exception("Could not send the error to ERROR_LOG_CHAT_ID")
+
+
 async def manage_regular(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Manage a regular message
@@ -187,7 +229,7 @@ async def manage(update: Update, context: ContextTypes.DEFAULT_TYPE, is_callback
         logging.error(e, exc_info=True)
         # For functions called asynchronously, since the full stacktrace is not printed
         logging.error(traceback.format_stack())
-        await context.bot.report_error(f"Error handling update:\n{update}\n\n{traceback.format_exc()}")
+        await report_unexpected_error(update, context, e)
     finally:
         end(db)
 
@@ -517,6 +559,9 @@ async def manage_after_db(
         logging.error(e, exc_info=True)
         # For functions called asynchronously, since the full stacktrace is not printed
         logging.error(traceback.format_stack())
+        # Also to ERROR_LOG_CHAT_ID: this handler catches nearly every error of a command or a button,
+        # so none of them ever reached the report in manage()
+        await report_unexpected_error(update, context, e)
 
     if user.should_update_model and user.tg_user_id is not None:
         user.save()

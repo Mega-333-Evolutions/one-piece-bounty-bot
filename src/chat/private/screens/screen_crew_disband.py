@@ -35,6 +35,10 @@ async def manage(
     :return: None
     """
 
+    # Typed text, not a button (the Disband button keeps the user in edit mode): nothing to read from it here
+    if inbound_keyboard is None:
+        return
+
     try:
         get_crew(user=user)
     except CrewValidationException as cve:

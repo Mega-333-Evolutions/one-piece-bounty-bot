@@ -118,7 +118,7 @@ class Plunder(BaseModel):
             Plunder()
             .select()
             .where((Plunder.challenger == user) & (Plunder.status == status))
-            .order_by(Plunder.belly.desc())
+            .order_by(Plunder.belly.desc(nulls="last"))
             .first()
         )
 
@@ -127,7 +127,7 @@ class Plunder(BaseModel):
             Plunder()
             .select()
             .where((Plunder.opponent == user) & (Plunder.status == status.get_opposite_status()))
-            .order_by(Plunder.belly.desc())
+            .order_by(Plunder.belly.desc(nulls="last"))
             .first()
         )
 
@@ -180,7 +180,7 @@ class Plunder(BaseModel):
             Plunder()
             .select()
             .where(((Plunder.challenger == user) & (Plunder.status == GameStatus.LOST)))
-            .order_by(Plunder.sentence_duration.desc())
+            .order_by(Plunder.sentence_duration.desc(nulls="last"))
             .first()
         )
 

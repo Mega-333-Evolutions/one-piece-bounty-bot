@@ -39,6 +39,11 @@ async def manage(
     :return: None
     """
 
+    # Typed text, not a button (the user is still in edit mode after a Back from one of the edit buttons
+    # below): there is nothing to read from it on this screen
+    if inbound_keyboard is None:
+        return
+
     crew = get_crew(user=user)
     inline_keyboard: list[list[Keyboard]] = []
 

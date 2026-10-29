@@ -74,7 +74,7 @@ class DocQGame(BaseModel):
             DocQGame()
             .select()
             .where((DocQGame.user == user) & (DocQGame.status == status))
-            .order_by(DocQGame.belly.desc())
+            .order_by(DocQGame.belly.desc(nulls="last"))
             .first()
         )
 

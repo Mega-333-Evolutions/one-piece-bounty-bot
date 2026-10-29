@@ -30,7 +30,11 @@ STANDARD_LIST_SIZE = 10
 STANDARD_LIST_KEYBOARD_ROW_SIZE = 5
 FEATURE_KEYBOARD_ROW_SIZE = 2
 USER_KEYBOARD_ROW_SIZE = 2
-MAX_LIMIT = 18446744073709551610  # Max unsigned bigint
+# "Every item" for a list query (LIMIT). It used to be the largest unsigned bigint, which MySQL accepts
+# in a LIMIT but PostgreSQL refuses ("bigint out of range": its LIMIT stops at 2**63 - 1), which made
+# every list screen fail on PostgreSQL. A billion rows is far beyond anything the bot will ever list,
+# and small enough for any arithmetic done on it (page * limit) to stay inside a bigint
+MAX_LIMIT = 1_000_000_000
 
 STANDARD_DATE_FORMAT = "%Y-%m-%d"
 STANDARD_DATE_TIME_FORMAT = "%Y-%m-%d %H:%M"

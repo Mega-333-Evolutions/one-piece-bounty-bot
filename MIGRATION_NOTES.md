@@ -1038,7 +1038,9 @@ alone; `report_error()` is a separate, parallel path.
 Wired into every place in the Telethon-specific layer that was catching
 exceptions and only logging them locally:
 - `manage_message.py`'s top-level per-update handler (catches essentially
-  all command/message-processing errors)
+  all command/message-processing errors) - *correction: not the errors of commands and buttons;
+  the handler at the end of `manage_after_db` caught those first and only logged them, so they
+  were never forwarded until "PostgreSQL: some commands and buttons did nothing" below*
 - `runtime.py`'s `create_task()` wrapper (every background "fire and
   forget" task - game results, notifications, etc.)
 - `runtime.py`'s three event handlers' own `except` blocks, for when
@@ -1744,7 +1746,9 @@ copied ones; then checks every table (row count and the sum of every number colu
 old one. All of it is one transaction: if anything is wrong nothing is written to the new
 database, and the message says what to do. PostgreSQL can't store the NUL character in a text, so
 it is removed if one exists (the script says how many). It refuses to run when the new database
-already has rows; `--wipe-target` empties the bot's tables there first to copy again.
+already has rows; `--wipe-target` empties the bot's tables there first to copy again. (Real data
+turned out to hold things that generated rows don't: see "Copying from TiDB stopped on a
+`0000-00-00` date" further down, for what the script does about them now.)
 **Going back** is `DB_TYPE=mysql` and the old `DB_*` values: the old database is untouched, as it
 was when the bot was stopped (what happened on PostgreSQL after that is not in it).
 
@@ -1915,7 +1919,9 @@ already created with the old definition (for instance the one the copy script fi
 version) is repaired at startup: `User.py` drops the NOT NULL when, and only when, the database is
 PostgreSQL and the column is still NOT NULL, so it does nothing on the following starts. MySQL /
 TiDB are not touched (their column stays as it is and a new user is saved exactly as before). A
-static scan of every place that creates a row found no other NOT NULL column left without a value.
+static scan of every place that creates a row was thought to have found no other NOT NULL column
+left without a value; it had missed some (`/reward`, taxed winnings, the weekly leaderboard), see
+"PostgreSQL: some commands and buttons did nothing" below.
 
 **On verification:** on a real PostgreSQL 16 server, a new user could not be saved before and is
 saved now, on a fresh schema; with the column put back to NOT NULL to imitate an old database, the
@@ -1924,6 +1930,205 @@ mode a new user is saved; and the copy script, run for real from a MariaDB whose
 NOT NULL to the new PostgreSQL schema, copied 1,230 rows in 41 tables with 0 differences, as before.
 **What I could not verify:** Supabase itself (no access from here), so the first start of the bot
 against it is worth watching in the logs.
+
+## Copying from TiDB stopped on a `0000-00-00` date: the copy script now handles MySQL's "empty" dates, and lists every other row it can't copy in one go
+
+**What was happening.** The first run of `scripts/copy_mysql_to_postgres.py --wipe-target` on the
+real data (TiDB to Supabase) copied 13 tables (crew, user, group, group_chat, bounty_gift,
+bounty_loan, crew_ability, crew_chest_spending_record, crew_join_request,
+crew_member_chest_contribution, daily_reward, davy_back_fight, davy_back_fight_participant: about
+20,000 rows) and then stopped on the next one, `devil_fruit`, with `date/time field value out of
+range: "0000-00-00 00:00:00"`. MySQL and TiDB can hold an "empty" date, `0000-00-00 00:00:00`,
+which is not a day of the calendar; PostgreSQL has no such date and refuses it. The bot's MySQL
+driver (`pymysql`) hands such a value over as a piece of text instead of a date, and the script
+passed it on as it was. The generated rows the script had been tested with had no such value; real
+data does. Nothing was written to Supabase by that run: the script copies in one transaction, so the
+13 tables it had already copied were rolled back with the rest (this was tested on a real
+PostgreSQL; your Supabase could not be looked at from here), and the old database is only ever read.
+
+**What the script does now**, on top of what it did before:
+- **Empty dates** (`0000-00-00 00:00:00`, or a date with month or day `00` such as `2020-00-10`),
+  in any date column of any table: where the column can be empty they become NULL; where it can't
+  (like `devil_fruit.date`, which no code of the bot reads) they become `1970-01-01 00:00:00`. That
+  is older than any real date, as the empty date was, so "is it before ..." comparisons and sorting
+  by date keep their answer. A text that is not a date at all gets the same treatment. The old
+  database is not changed.
+- **Links to a row that doesn't exist.** TiDB doesn't enforce foreign keys unless it is asked to,
+  so the old data can hold, for example, a row of a crew that was deleted. A link that can be
+  empty (like `user.crew_id`) is cleared (NULL). A link that can't be empty means the row can't be
+  copied: the script stops and lists every such row by table and column (the ids of the rows, the
+  table they point to and the id that doesn't exist), counts the rows that only belong to those
+  ones, and writes nothing. `--drop-orphans` leaves them out instead (they stay in the old database
+  and the summary lists them). Without that option nothing is ever left out silently.
+- **Any other row PostgreSQL refuses** (a text longer than its column, a number too big for its
+  column, ...): when a batch of rows is refused the script splits it in halves again and again
+  until it has found the rows, then stops with one report: table, the ids (up to 100 rows per table,
+  the others are counted) and the reason PostgreSQL gave. Fix them in the old database and run it
+  again; `--drop-orphans` does not apply to these.
+- **A summary at the end** of a successful copy lists every change (per table and column) and every
+  row left out. The line of a table that was concerned says "values changed, see below".
+
+**Unchanged:** one transaction (a stop at any point leaves the new database as it was), the old
+database only read, every table checked before the commit against what was inserted (number of
+rows and the total of every number column). To run it again: the same command as before, with
+`--wipe-target`.
+
+**On verification** (a real MariaDB 10.11 to a real PostgreSQL 16, through the bot's own
+`Database.py`; there is no TiDB in the sandbox):
+- The error of the report was reproduced first, with the same message, from a `devil_fruit` row
+  holding a zero date; with the new script the copy works (1,230 rows in 41 tables).
+- Four empty or partly empty dates planted in each of the 96 date columns of the 41 tables (NOT
+  NULL and nullable ones): every table of the new database equals a result computed separately from
+  the script, row by row and column by column, and the number reported for every column is exact.
+  The same when the driver returns None instead of text (what `mysqlclient` does).
+- Rows that point to rows that don't exist (a crew, two predictions and a devil fruit deleted with
+  foreign key checks off, plus rows that belong to rows that then can't be copied): the result
+  equals a separate computation that repeats until nothing changes; without the option the copy stops
+  with the full list and the new database is left exactly as it was.
+- Rows PostgreSQL refuses (names too long, a 64-bit number in a 32-bit column): one report with all
+  of them and nothing written; the limit of the search works.
+- A bigger database (6,000 users, 12,000 daily rewards, zero dates and refused rows among them):
+  19,170 rows in about 4 seconds on the same machine (against Supabase it takes longer: the first
+  real run copied about 20,000 rows in less than two minutes).
+- 70 checks of the new real-database tests and the 32 of the earlier copy-script tests pass. The
+  command itself was run three ways: with zero dates (1,230 rows, exit code 0), with rows that
+  point to missing rows and no option (stops, exit code 1, the new database untouched), and with
+  `--drop-orphans` (1,214 rows; the 13 rows that were left out are listed).
+
+**What I could not verify:** your real data, TiDB and Supabase (no access from here). The real data
+may hold other kinds of problem than the ones above; the script now reports all that PostgreSQL
+refuses at once instead of one per run, so the next run shows what is left.
+
+## PostgreSQL: some commands and buttons did nothing (`/reward`, Loan, ...): MySQL had been quietly fixing what PostgreSQL refuses, and the errors never reached the error chat
+
+**What was happening.** After the switch to PostgreSQL (Supabase), `/start` worked but `/reward` got
+no answer, the Loan button did nothing, and so did a number of other commands and buttons, while the
+rest kept working, and nothing showed up in the error chat. Two separate things were behind it.
+
+*Why they failed.* The connection peewee opens to MySQL / TiDB is not in strict mode (it only sets
+`sql_mode` to `PIPES_AS_CONCAT`), so MySQL has always "fixed" a value it can't store instead of
+refusing it: it puts `''` or `0` in a NOT NULL column that an INSERT leaves out, cuts a text that is
+too long, clips a number that is too big, turns a text saved in a number column into 0, sorts an
+empty value (NULL) as the smallest one and accepts a `LIMIT` of any size. The bot came to depend on
+every one of these, and PostgreSQL refuses or does differently on each, so the command or button
+that did one of them stopped half-way (an error inside a command is caught and logged, so the person
+just gets no answer). What I found, each one reproduced on a real PostgreSQL 16 with the bot's data
+copied into it:
+
+- **Every list screen** (Devil Fruit, Predictions, Loan, Crew > Members, Crew > Davy Back Fight,
+  Crew > Search and the ten lists under Logs: bounty gifts, challenges, Doc Q, fights, global
+  leaderboard ranks, Legendary Pirates, New World pirates, plunders, tax breakdown, Warlords): "no
+  limit" was `constants.MAX_LIMIT = 18446744073709551610`, sent as `LIMIT 18446744073709551610`. The
+  biggest number PostgreSQL takes there is 9223372036854775807: `bigint out of range`.
+- **NOT NULL columns left out when the row is created**: `DailyReward.limitation` (this is
+  **`/reward`**: `null value in column "limitation" of relation "daily_reward" violates not-null
+  constraint`), `IncomeTaxEvent.contribution_list` (every winning that is taxed) and
+  `Leaderboard.message_id` (the weekly leaderboard, which is saved first and gets the id of its
+  message after it is sent). The entry above about `user.private_screen_list` says a scan of every
+  place that creates a row found no other NOT NULL column left without a value; that was wrong, the
+  scan missed columns that are filled in later or only under a condition.
+- **Activating a crew ability** (the "Yes" of every ability, and the random one):
+  `CrewAbility.acquired_method` is a number column but was given the texts `"chosen"` / `"random"`.
+  MySQL stored 0 for them; PostgreSQL: `invalid input syntax for type smallint: "chosen"`.
+- **"Highest first" over a column that can be empty**: the biggest game / fight / plunder / Doc Q won
+  or lost, the longest plunder sentence, and the choice of plunder opponents. MySQL sorts NULL as the
+  smallest value, PostgreSQL as the biggest, so on PostgreSQL a row *without* an amount came first.
+  No error, just the wrong row.
+- **Texts too long for their column** (the text of an error saved in `SystemUpdateUser.error` or
+  `GroupChat.last_error_message`, an epithet, ...): `value too long for type character varying(255)`.
+- **Whole numbers outside the range of their column**, e.g. a 25 digit "Required bounty" typed for a
+  crew: `bigint out of range`.
+
+*Why nothing showed.* The handler at the end of `manage_after_db` catches nearly every error of a
+command or a button, writes it to the bot's log and carries on (the PTB bot does the same). Only an
+error that got past it reached `report_error()` and `ERROR_LOG_CHAT_ID`. The entry "New feature: all
+errors now forward to ERROR_LOG_CHAT_ID" says the handler in `manage()` catches "essentially all
+command/message-processing errors"; that was wrong for commands and buttons, because this inner
+handler catches them first, so none of them was ever forwarded.
+
+**Fix.** No schema change: there is nothing to run on the database.
+- `constants.py`: `MAX_LIMIT` is `1_000_000_000`: more rows than the bot will ever have, and a number
+  every database takes.
+- `src/model/BaseModel.py`: `BaseModel.save()` gives PostgreSQL the forgiving behaviour MySQL had
+  (on both databases; on MySQL it stores what MySQL would have stored itself, so nothing changes
+  there). A new row gets `''` for a NOT NULL text column, `0` for a NOT NULL number and `False` for
+  a NOT NULL yes/no column it has no value for (not keys, which MySQL can't fill in either, and not
+  dates, because MySQL's "zero date" can't be stored in PostgreSQL). A text longer than its column is
+  cut to it, and a whole number outside the range of its column is set to the nearest end of the
+  range; both are logged as a warning, so they can be found. This covers rows saved with `save()`,
+  which is what the typed inputs and the commands use; `Model.update(...)` and raw SQL don't go
+  through it (none of them failed in the tests below).
+- `src/model/enums/crew/CrewAbilityAcquiredMethod.py`: the values are the numbers 1 (chosen) and 2
+  (random). Nothing reads the value back; rows already in the database keep their 0.
+- NULL ordering: `Game.py`, `Fight.py`, `Plunder.py` and `DocQGame.py` sort with
+  `.desc(nulls="last")` and `fight_plunder_service.py` with `.asc(nulls="first")`. peewee writes
+  `NULLS LAST` / `NULLS FIRST` on PostgreSQL and an expression that does the same on MySQL, so both
+  give the order MySQL always gave.
+- `src/chat/manage_message.py`: both handlers now call the new `report_unexpected_error()`, which
+  sends the error, with the update and the full traceback, to `ERROR_LOG_CHAT_ID`. The same error
+  (same type, same first line, same place in the code) is sent at most once every 10 minutes
+  (`REPORT_SAME_ERROR_EVERY_SECONDS`), so a command that fails for everybody doesn't flood the chat.
+  The errors that are expected (the bot blocked, a deleted message, ...) have their own handlers
+  before this one and are still not reported. A failure while sending the report is logged and goes
+  no further, so reporting can't break the command that is being handled. `ERROR_LOG_CHAT_ID` has to
+  be set, as before.
+- `src/chat/private/screens/screen_crew_modify.py` and `screen_crew_disband.py`: one small thing the
+  new reports would have shown straight away. After the Disband button, or after Back from the Name /
+  Description / Required bounty buttons of Crew > Modify, the bot still counts the player as typing,
+  so a text typed there reached a screen that only reads buttons: `'NoneType' object has no
+  attribute 'info'`, no answer, on MySQL as well. These two screens now ignore typed text, which is
+  what the player got before, without the error.
+
+**On verification:** all on a real PostgreSQL 16 and a real MariaDB 10.11 (the stand-in for MySQL /
+TiDB, opened the way the bot opens it, without strict mode), with the same 1,260 rows in 41 tables
+(users, crews, loans, games, predictions, devil fruits, fights, ...) copied from one to the other
+with the copy script (compared row by row afterwards: 0 differences), and the bot's own code driven
+with only Telegram replaced.
+- A crawl through the bot's own code on both databases from the same data: every button reachable
+  from `/start` in the private chat (1,668 presses), every screen that waits for typed text probed
+  with 4,251 inputs (names, amounts, 25 digit numbers, 300 characters, emoji, quotes, negative
+  numbers, a poll) and the group commands and their buttons (329 actions), 6,249 actions in all.
+  With the code as it was in the last files I sent, PostgreSQL got through only 873 of them (the
+  rest sit behind a screen that failed) and 40 of those ended in a database error that MariaDB
+  doesn't have: 26 `bigint out of range` (the list screens above), 13 `invalid input syntax for type
+  smallint` (crew abilities) and 1 `/reward`. With the changes both databases get through all 6,249,
+  answer 6,088 of them each, and there is not one difference between them: not in what was answered,
+  the texts, the buttons, the alerts or the errors. A second crawl of the private chat alone (1,692
+  presses) agrees: 0 differences.
+- `/reward` in 11 states (a free player, a capped one, in the New World, arrested for a while and for
+  good, already collected, and the streaks: yesterday, 6 days, older, today): before, PostgreSQL gave
+  no answer in the 5 that pay out (the first reward and every streak), now the 9 states the test
+  data can reach answer exactly as MariaDB does (the other 2 are New World players whose location
+  doesn't exist in the test data, which fails the same way on both).
+- All 16 scheduled jobs (every one but the Reddit one, which needs the network), twice each, with
+  loans to expire, games to time out, predictions to send and close, fruits to release, a Davy Back
+  Fight to end and so on: no error on either database. Compared after they had run, the two databases
+  held the same rows, except for things that were never defined: which of two players with exactly
+  the same bounty gets which place on a leaderboard (equal values, and rows without an `ORDER BY`,
+  come back in another order on PostgreSQL) and the random time of a fruit's next release.
+- The safety nets, tried on every model: 45 text columns saved with a text longer than the column
+  (PostgreSQL refused 37 of them before, now all 45 are cut and stored, as on MariaDB); 440 column /
+  number combinations (222 refused before, 436 stored now; the other 4 are `CHECK` constraints on
+  negative totals that MariaDB refuses as well); all 41 models saved with only the values the bot
+  usually sets (28 refused before); the taxed winnings and the weekly leaderboard through the bot's
+  own functions; the NULL-order lookups (same rows on both); and the error reports (a plain error,
+  the same one again, a different one, ten minutes later, a real database error, the expected errors,
+  and a report that itself fails).
+- The earlier suites (crew revoke, global challenge expiry, predictions, reset calendar, update
+  description, `/reply` to a bot, the copy script's 102 checks) pass on real PostgreSQL and real
+  MariaDB, and the smoke test of the aggregate queries has 0 SQL errors.
+
+**What I could not verify:** your real data and Supabase itself (no access from here). The test data
+is realistic but it is mine: very old rows, or values somebody typed that I didn't think of, may hit
+something else. On both databases alike, 21 of the 6,249 actions still end in an error, so they are
+not database differences: 18 are the address lookup of Settings > Time zone, which needs the
+internet that the test machine doesn't have, and 3 come from the test data (a bet on a prediction
+that was never sent, and the Delete button of a message the test machine doesn't hold). Only the
+code that is reached through the buttons, typed text and group commands was exercised; a path that
+needs a real Telegram event I couldn't produce (a photo, a forwarded message, ...) was not. If a
+command or a button still does nothing, press it once: the error is now in the error chat (set
+`ERROR_LOG_CHAT_ID`), and that text, or just the name of the command or button, is what is needed to
+find it.
 
 ## Known limitations / things worth knowing
 

@@ -115,7 +115,7 @@ class Fight(BaseModel):
             Fight()
             .select()
             .where((Fight.challenger == user) & (Fight.status == status))
-            .order_by(Fight.belly.desc())
+            .order_by(Fight.belly.desc(nulls="last"))
             .first()
         )
 
@@ -124,7 +124,7 @@ class Fight(BaseModel):
             Fight()
             .select()
             .where((Fight.opponent == user) & (Fight.status == status.get_opposite_status()))
-            .order_by(Fight.belly.desc())
+            .order_by(Fight.belly.desc(nulls="last"))
             .first()
         )
 

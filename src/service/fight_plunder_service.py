@@ -464,7 +464,7 @@ def find_random_opponent(
         # Order by difference in location level and last interaction
         order_by_condition = (
             fn.abs(User.location_level - player.location_level).asc(),
-            User.last_system_interaction_date.asc(),
+            User.last_system_interaction_date.asc(nulls="first"),
         )
 
     # Get random user in minimum required location, without immunity, not arrested, not admin
