@@ -191,6 +191,16 @@ class Message:
             allows_multiple_answers=bool(getattr(poll, "multiple_choice", False)),
         )
 
+    @staticmethod
+    def _peer_is_chat(peer, chat: Chat) -> bool:
+        """True if a Telethon peer (the from_id of a message) is the given chat itself"""
+        try:
+            from telethon import utils
+
+            return utils.get_peer_id(peer) == chat.id
+        except Exception:
+            return False
+
     @classmethod
     async def from_telethon(cls, tl_message, client, bot, chat: Chat = None, fetch_reply: bool = True) -> "Message":
         """Build a compat Message from a real (non-service) Telethon message."""
@@ -203,15 +213,23 @@ class Message:
 
         from_user = None
         sender_chat = None
-        if isinstance(getattr(tl_message, "from_id", None), PeerUser) or (
-            tl_message.from_id is None and chat.type == Chat.PRIVATE
-        ):
+        from_id = getattr(tl_message, "from_id", None)
+        if isinstance(from_id, PeerUser) or (from_id is None and chat.type == Chat.PRIVATE):
             sender = await tl_message.get_sender()
             from_user = TelegramUser.from_entity(sender, client)
-        elif tl_message.from_id is not None:
+        elif from_id is not None:
             sender_entity = await tl_message.get_sender()
             if sender_entity is not None:
                 sender_chat = await Chat.from_entity(sender_entity, client)
+            elif cls._peer_is_chat(from_id, chat):
+                # The sender is the group itself but Telethon could not resolve its entity
+                sender_chat = chat
+        elif chat.type in (Chat.GROUP, Chat.SUPERGROUP) and not getattr(tl_message, "out", False):
+            # A message posted by an anonymous admin has no sender at all (the admin's custom title
+            # is the only thing Telegram sends, as post_author). The Bot API shows it as sent by the
+            # group itself, with the group as sender_chat, which is what the bot's checks rely on to
+            # tell it apart from a message of a real user
+            sender_chat = chat
 
         via_bot = None
         if getattr(tl_message, "via_bot_id", None):

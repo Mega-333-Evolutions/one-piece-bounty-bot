@@ -80,6 +80,14 @@ COMMAND_FEATURE_DISABLED_ERROR = (
 COMMAND_NOT_ALLOWED_FROM_DEEPLINK_ERROR = "این دستور از طریق دیپ‌لینک مجاز نیست"
 COMMAND_START_IN_GROUP_ERROR = "شما نمی‌توانید از این دستور اینجا استفاده کنید.\n\nبرای شروع ربات در پیام خصوصی، دکمه زیر 👇 را بزنید."
 COMMAND_START_IN_GROUP_BUTTON = "شروع"
+ANONYMOUS_ADMIN_COMMAND_ERROR = (
+    f"{Emoji.WARNING} *ادمین‌های ناشناس نمی‌توانند از این ربات استفاده کنند*\n\n"
+    "پیام‌هایی که به‌عنوان ادمین ناشناس ارسال می‌شوند از طرف خود گروه هستند، بنابراین نمی‌توانم"
+    " تشخیص دهم چه کسی آن‌ها را فرستاده است.\n\n"
+    "برای استفاده از دستورات، گزینه *ناشناس ماندن* را در دسترسی‌های ادمین خود خاموش کنید و"
+    " دستور را دوباره ارسال کنید.\n"
+    "_اطلاعات گروه ← ادمین‌ها ← نام شما_"
+)
 
 SHOW_USER_STATUS = "کاربر: {}\nجایزه: ฿*{}*{}\nرتبه: {}{}{}"
 SHOW_USER_STATUS_LOCATION = "\nموقعیت: {}"
@@ -230,6 +238,10 @@ EXCEPTION_NO_EDIT_MESSAGE = "new_message is False but update.callback_query is N
 
 KEYBOARD_NOT_FOUND = "کیبورد یافت نشد"
 KEYBOARD_USE_UNAUTHORIZED = "شما مجاز به استفاده از این کیبورد نیستید"
+KEYBOARD_DELETE_ONLY_BY_ADMINS = "فقط ادمین‌های این گروه می‌توانند این پیام را حذف کنند"
+CALLBACK_MESSAGE_NOT_AVAILABLE = (
+    "این پیام دیگر در دسترس نیست. لطفاً دستور را دوباره ارسال کنید"
+)
 
 SWAP_SUCCESSFUL = "جابه‌جایی موفقیت‌آمیز بود"
 RESET_SUCCESSFUL = "بازنشانی موفقیت‌آمیز بود"

@@ -1426,7 +1426,9 @@ def get_message_source(update: Update) -> MessageSource:
         ):
             return MessageSource.TG_REST
     except AttributeError:
-        if update.inline_query.query is not None:
+        # No chat: an inline query, or a button of a message that is no longer there. Anything
+        # else (no inline query either) has no source, instead of failing on the missing query
+        if update.inline_query is not None and update.inline_query.query is not None:
             return MessageSource.INLINE_QUERY
 
     return MessageSource.ND
@@ -1552,6 +1554,23 @@ def message_is_from_anonymous_sender(message: Message) -> bool:
     """
 
     return message.sender_chat is not None or message.from_user is None
+
+
+def message_is_from_anonymous_admin(message: Message) -> bool:
+    """
+    Check if the message was posted by an anonymous admin of the group it is in. Telegram shows
+    such a message as sent by the group itself (the sender chat is the chat of the message), so
+    there is no user behind it and the admin can't be told apart from the other admins.
+    A channel that posts in the group has that channel as sender chat instead
+    :param message: The message
+    :return: True if the message was sent by an anonymous admin
+    """
+
+    return (
+        message.sender_chat is not None
+        and message.chat is not None
+        and message.sender_chat.id == message.chat.id
+    )
 
 
 def get_message_url(

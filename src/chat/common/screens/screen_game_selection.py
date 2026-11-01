@@ -1,3 +1,4 @@
+import logging
 from enum import StrEnum
 
 from src.tg_compat import Update
@@ -50,6 +51,15 @@ async def manage(
     if GameSelectionReservedKeys.CANCEL in inbound_keyboard.info:
         await delete_game(context, update, game)
         user.should_update_model = False
+        return
+
+    # The game type was already chosen: the button was tapped more than once, or tapped on a game
+    # that has meanwhile been accepted or even started. Choosing again would swap the type of a
+    # game that is already underway, while its timers and board are still those of the first one
+    if game.get_status() is not GameStatus.AWAITING_SELECTION:
+        logging.info(
+            f"Ignored game selection for game {game.id}: already chosen (status {game.status})"
+        )
         return
 
     game.type = GameType(inbound_keyboard.info[GameSelectionReservedKeys.GAME_TYPE])

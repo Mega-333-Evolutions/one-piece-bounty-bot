@@ -100,6 +100,7 @@ from src.service.message_service import (
     message_is_reply,
     message_is_from_bot,
     message_is_from_anonymous_sender,
+    message_is_from_anonymous_admin,
     escape_valid_markdown_chars,
 )
 from src.service.user_service import user_is_boss, user_is_muted, get_effective_tg_user_id
@@ -138,6 +139,11 @@ def end(db: MySQLDatabase) -> None:
 REPORT_SAME_ERROR_EVERY_SECONDS = 600
 _reported_errors: dict[str, float] = {}
 
+# An anonymous admin who uses a command is told once per this many seconds in a chat that they
+# can't: one who keeps trying would otherwise flood the chat with the same warning
+ANONYMOUS_ADMIN_WARNING_EVERY_SECONDS = 15
+_anonymous_admin_warnings: dict[int, float] = {}
+
 
 async def report_unexpected_error(
     update: Update, context: ContextTypes.DEFAULT_TYPE, error: Exception
@@ -172,6 +178,118 @@ async def report_unexpected_error(
     except Exception:
         # Reporting an error must never become another one: it runs inside the handlers of the commands
         logging.exception("Could not send the error to ERROR_LOG_CHAT_ID")
+
+
+def is_command_of_this_bot(text: str | None) -> bool:
+    """
+    Check if a message sent in a group is a command of this bot, the way manage_after_db
+    recognizes it: a command the bot knows, with or without the @username of this bot. A command
+    addressed to another bot (/status@another_bot) or one that does not exist is not
+    :param text: The text of the message
+    :return: True if the text is a command of this bot
+    """
+
+    if not is_command(text):
+        return False
+
+    command_name = (text.split(" ")[0])[1:].lower()
+    command_name = command_name.replace("@" + Env.BOT_USERNAME.get().lower(), "")
+
+    # Just the prefix (or the prefix and the bot's username)
+    if command_name.strip() == "":
+        return False
+
+    # Answered in groups too, with the button to start the bot in DM
+    if command_name == "start":
+        return True
+
+    try:
+        Command.get_by_name(command_name, MessageSource.GROUP)
+    except ValueError:
+        return False
+
+    return True
+
+
+async def manage_anonymous_admin_message(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """
+    Manage a message sent by an anonymous admin in a group.
+
+    Anonymous admins can't use the bot: Telegram does not say which admin sent the message, so
+    there is no player to give the bounty, rewards or games of a command to. Messages that aren't
+    commands of the bot are ignored. A command is answered with how to use the bot (turn off
+    "Remain Anonymous" and send it again), with a Delete button that any admin of the group can
+    use, since there is no telling which one sent it. Nothing is saved for the admin.
+    :param update: The update
+    :param context: The context
+    :return: None
+    """
+
+    message = update.effective_message
+    chat = update.effective_chat
+
+    if not is_command_of_this_bot(message.text):
+        return
+
+    # Not a group the bot is allowed in: it leaves with the next message of a real user, no
+    # point in answering here
+    if (
+        Env.LIMIT_TO_AUTHORIZED_GROUPS.get_bool()
+        and str(chat.id) not in Env.AUTHORIZED_GROUPS.get_list()
+    ):
+        return
+
+    # Already warned a moment ago
+    now = time.monotonic()
+    last_warning = _anonymous_admin_warnings.get(chat.id)
+    if last_warning is not None and now - last_warning < ANONYMOUS_ADMIN_WARNING_EVERY_SECONDS:
+        return
+
+    if len(_anonymous_admin_warnings) > 500:
+        _anonymous_admin_warnings.clear()
+    _anonymous_admin_warnings[chat.id] = now
+
+    group: Group = await add_or_update_group(update, None)
+    set_current_language(group.get_language())
+    group_chat: GroupChat = add_or_update_group_chat(update, group)
+
+    # Any admin can delete it: there are no authorized users, as nobody knows who the anonymous
+    # admin is (checked in validate())
+    delete_button = Keyboard(
+        phrases.KEYBOARD_OPTION_DELETE,
+        info={ReservedKeyboardKeys.DELETE_BY_ADMINS: True},
+        only_authorized_users_can_interact=False,
+    )
+    await full_message_send(
+        context,
+        phrases.ANONYMOUS_ADMIN_COMMAND_ERROR,
+        update=update,
+        keyboard=[[delete_button]],
+        force_auto_delete=True,
+        group_chat=group_chat,
+    )
+
+
+async def answer_callback_without_message(update: Update) -> None:
+    """
+    Answer the tap of a button whose message is no longer available (typically deleted, by the
+    auto delete for example, just before the button was tapped). With no message there is no
+    chat to work in and nothing to do for the button, the user can only be told to ask again
+    :param update: The callback update
+    :return: None
+    """
+
+    if update.effective_user is not None:
+        user: User | None = User.get_or_none(User.tg_user_id == str(update.effective_user.id))
+        if user is not None:
+            set_current_language(user.get_language())
+
+    try:
+        await update.callback_query.answer(phrases.CALLBACK_MESSAGE_NOT_AVAILABLE, show_alert=True)
+    except BadRequest:  # Query too old or already answered
+        pass
 
 
 async def manage_regular(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -253,9 +371,26 @@ async def manage_after_db(
     :param is_callback: True if the message is a callback
     :return: None
     """
+    # A button of a message that is no longer available: no chat to work in
+    if is_callback and update.effective_chat is None:
+        await answer_callback_without_message(update)
+        return
+
     # Recast necessary for match case to work, don't ask me why
 
     message_source: MessageSource = MessageSource(get_message_source(update))
+
+    # Message sent by a chat instead of a user: an anonymous admin (the group itself) or a channel
+    # posting in the group. There is no user behind it, and no way to tell which admin it was
+    if (
+        message_source is MessageSource.GROUP
+        and not is_callback
+        and update.effective_message is not None
+        and update.effective_message.sender_chat is not None
+    ):
+        if message_is_from_anonymous_admin(update.effective_message):
+            await manage_anonymous_admin_message(update, context)
+        return
 
     user = User()
     if update.effective_user is not None:
@@ -679,6 +814,25 @@ async def validate(
     :param group_chat: The group chat
     :return: True if the command is valid
     """
+
+    # Delete button of the warning sent to an anonymous admin. Nobody knows which admin it is for,
+    # so it can't be limited to one user: any admin of the group can use it
+    if (
+        is_callback
+        and inbound_keyboard is not None
+        and ReservedKeyboardKeys.DELETE_BY_ADMINS in inbound_keyboard.info
+    ):
+        if message_source is MessageSource.GROUP and await user.is_chat_admin(update):
+            await delete_message_and_command(update, context)
+        else:
+            await full_message_send(
+                context,
+                phrases.KEYBOARD_DELETE_ONLY_BY_ADMINS,
+                update,
+                answer_callback=True,
+                show_alert=True,
+            )
+        return False
 
     # Validate keyboard interaction
     if is_callback and ReservedKeyboardKeys.AUTHORIZED_USERS in inbound_keyboard.info:

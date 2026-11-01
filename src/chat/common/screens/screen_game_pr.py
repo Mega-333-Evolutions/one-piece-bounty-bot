@@ -9,6 +9,7 @@ from src.model.Game import Game
 from src.model.User import User
 from src.model.enums.Emoji import Emoji
 from src.model.game.GameOutcome import GameOutcome
+from src.model.game.GameType import GameType
 from src.model.game.punkrecords.PunkRecords import PunkRecords, RevealedDetail
 from src.service.game_service import (
     set_user_private_screen,
@@ -189,6 +190,11 @@ async def run_game(
         game: Game = Game.get_by_id(game.id)
     except DoesNotExist:
         return  # Game was deleted in the meantime (e.g. cancelled/expired)
+
+    # The game is not a Punk Records one anymore (its type was changed while this was waiting),
+    # so there is no detail to reveal and the next run couldn't tell how long to wait
+    if game.get_type() is not GameType.PUNK_RECORDS:
+        return
 
     if not await should_proceed_after_hint_sleep(context, game, user):
         return

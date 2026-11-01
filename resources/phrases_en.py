@@ -80,6 +80,14 @@ COMMAND_FEATURE_DISABLED_ERROR = (
 COMMAND_NOT_ALLOWED_FROM_DEEPLINK_ERROR = "This command is not allowed from a deeplink"
 COMMAND_START_IN_GROUP_ERROR = "You can't use this command here.\n\nClick the button below 👇 to start the bot in DM."
 COMMAND_START_IN_GROUP_BUTTON = "Start"
+ANONYMOUS_ADMIN_COMMAND_ERROR = (
+    f"{Emoji.WARNING} *Anonymous admins can't use this bot*\n\n"
+    "Messages sent as an anonymous admin come from the group itself, so I can't tell who is"
+    " behind them.\n\n"
+    "To use commands, turn off *Remain Anonymous* in your admin permissions, then send the"
+    " command again.\n"
+    "_Group info → Administrators → your name_"
+)
 
 SHOW_USER_STATUS = "User: {}\nBounty: ฿*{}*{}\nRank: {}{}{}"
 SHOW_USER_STATUS_LOCATION = "\nLocation: {}"
@@ -230,6 +238,10 @@ EXCEPTION_NO_EDIT_MESSAGE = "new_message is False but update.callback_query is N
 
 KEYBOARD_NOT_FOUND = "Keyboard not found"
 KEYBOARD_USE_UNAUTHORIZED = "You are not authorized to use this keyboard"
+KEYBOARD_DELETE_ONLY_BY_ADMINS = "Only an admin of this group can delete this message"
+CALLBACK_MESSAGE_NOT_AVAILABLE = (
+    "This message is no longer available. Please send the command again"
+)
 
 SWAP_SUCCESSFUL = "Swap successful"
 RESET_SUCCESSFUL = "Reset successful"

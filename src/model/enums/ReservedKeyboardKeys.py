@@ -5,6 +5,9 @@ class ReservedKeyboardKeys(StrEnum):
     SCREEN = "sc"
     PREVIOUS_SCREEN = "psc"
     DELETE = "del"
+    # Delete button that any admin of the group can use, for messages with no user to authorize
+    # (the warning sent to an anonymous admin)
+    DELETE_BY_ADMINS = "dla"
     IN_EDIT_ID = "z"
     SCREEN_STEP = "y"
     SCREEN_STEP_NO_INPUT = "y1"

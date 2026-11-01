@@ -1880,7 +1880,8 @@ command is refused is a one-word change per command there.
 
 **Not affected:** private chats (replying to the bot's own messages is how its screens work there),
 button presses (they aren't replies, so a Delete / Back / confirm button on a bot message works as
-before), and commands sent *by* an anonymous admin (the sender side behaves as it did). Rows of
+before), and commands sent *by* an anonymous admin (they were not touched by that change; the entry
+"Anonymous admins can no longer use the bot" further down is what happens to them now). Rows of
 bots that earlier versions saved in the `user` table stay where they are; nothing uses them now.
 
 **On verification:** the real `manage_after_db()` / `validate()` with real compat `Update` /
@@ -2129,6 +2130,121 @@ needs a real Telegram event I couldn't produce (a photo, a forwarded message, ..
 command or a button still does nothing, press it once: the error is now in the error chat (set
 `ERROR_LOG_CHAT_ID`), and that text, or just the name of the command or button, is what is needed to
 find it.
+
+## Anonymous admins can no longer use the bot; a button on a deleted message and a game type swapped mid-game no longer crash
+
+Three errors from the error chat (Oct 31), each reproduced first on the code as received and then
+fixed. They have nothing in common except that all three were already in the PTB source or came
+from a state the compat layer left half-filled.
+
+### 1. `/status@one_piece_bountybot` from an anonymous admin: `TypeError: expected string or bytes-like object, got 'NoneType'`
+
+**What was happening.** Telethon reports no sender at all for a message an anonymous admin posted
+as the group (only their custom title, which the logs show as `"author_signature": "God"`). The compat
+layer (`Message.from_telethon`) left both `from_user` *and* `sender_chat` empty for it, so the
+update looked like it came from nobody. The bot went on with an empty `User()` that has no name,
+and the first thing that needs the name (`/status` mentions the user) crashed. In PTB the same
+message has `sender_chat` = the group itself, and that is how the original code told anonymous
+admins apart; the compat layer had lost that.
+
+**What changed.**
+- `src/tg_compat/_message.py`: a message in a group (supergroup or old-style group) that has no
+  sender and isn't the bot's own now gets `sender_chat` = the group, as in the Bot API. (If
+  Telegram does send the group as the sender but Telethon can't resolve it, the same result.)
+  Channels posting in a group already had `sender_chat` = the channel, unchanged.
+- `manage_after_db()` (`src/chat/manage_message.py`): a group message sent by a *chat* instead of a
+  user is stopped before anything is saved or run. **A channel's** message is ignored silently
+  (what the original did through `AnonymousAdminException`). **An anonymous admin's** message is
+  ignored too, unless it is a command of this bot: then the bot answers with the warning below.
+  "A command of this bot" is decided the way the normal flow does: a known group command with
+  `/ . , !`, with or without this bot's `@username`; a command for another bot
+  (`/status@another_bot`), a command nobody knows, and normal messages get no answer.
+- `message_service.message_is_from_anonymous_admin()` is the one place that says "this is an
+  anonymous admin" (the sender chat is the chat the message is in).
+
+**The warning** (`ANONYMOUS_ADMIN_COMMAND_ERROR`, in `resources/phrases_en.py` and `phrases_fa.py`,
+in the language of the group, as a reply to the command, in the same topic of a forum):
+
+> ⚠ **Anonymous admins can't use this bot**
+>
+> Messages sent as an anonymous admin come from the group itself, so I can't tell who is behind them.
+>
+> To use commands, turn off **Remain Anonymous** in your admin permissions, then send the command again.
+> _Group info → Administrators → your name_
+
+It has a **Delete** button. Nobody can tell which admin the message was from, so **any admin of the
+group** can use it: it deletes the warning and, best effort (the bot needs the "delete messages"
+right), the command that caused it. Anybody else gets the alert "Only an admin of this group can
+delete this message" (`KEYBOARD_DELETE_ONLY_BY_ADMINS`). The button carries `{"dla":1}`
+(`ReservedKeyboardKeys.DELETE_BY_ADMINS`, checked at the top of `validate()`), not a list of users.
+An admin who keeps trying gets **one warning per chat per 15 seconds**
+(`ANONYMOUS_ADMIN_WARNING_EVERY_SECONDS`), and it is deleted by the group's auto delete like the
+bot's other messages when that is on. Nothing is saved for the admin (no user row, no bounty).
+
+**Things worth knowing.** The bot now ignores *everything* an anonymous admin sends, not only
+commands: the main group's message filter and Silence mode no longer act on their messages (they
+can't be matched to a player). No warning is sent in a group the bot isn't allowed in
+(`LIMIT_TO_AUTHORIZED_GROUPS`). Players who are admins but not anonymous are not affected.
+
+### 2. A button pressed on a message the bot can't fetch: `AttributeError: 'NoneType' object has no attribute 'type'` / `'query'`
+
+**What was happening.** When the message a button belongs to is gone (typically deleted by auto
+delete just before the button was tapped) Telethon can't fetch it, so the update has a button press
+but no message and therefore no chat. `get_message_source()` looked at the chat, failed, then
+looked at `update.inline_query.query` of an update that has no inline query, and failed again.
+
+**What changed.** `manage_after_db()` answers such a button press right away with an alert, in the
+language of the user when the bot knows them, "This message is no longer available. Please send the
+command again" (`CALLBACK_MESSAGE_NOT_AVAILABLE`), and stops: there is no chat to work in. Also,
+`get_message_source()` returns "no source" for an update that has neither a chat nor an inline
+query instead of raising. Inline queries are unchanged (the bot has no buttons on inline results
+that call back, only links).
+
+### 3. Background task: `ValueError: Unsupported game type: 1` (Guess or Life hint loop)
+
+**What was happening.** The buttons that pick a game (Guess or Life, Rock Paper Scissors, ...)
+could be tapped again after the game had been picked: twice quickly, a second button, or a button
+of a game already accepted and running. `screen_game_selection` then set the game's type and put
+its status back to "waiting for the opponent" unconditionally, because `validate_game()` only
+refuses *finished* games. The hint loop of a running Guess or Life game woke up, found type 1
+(Rock Paper Scissors) and had no waiting time for it: the error. (The timeout started by that
+second tap would also have treated the running game as an unaccepted request and removed it.) The
+same lines are in the PTB source.
+
+**What changed.**
+- `screen_game_selection.py`: a game type is only accepted while the game is waiting for it
+  (status "awaiting selection"). Later taps are ignored (one `INFO` line in the log). Cancel still
+  works whatever the status.
+- The hint loops of Guess or Life, Punk Records and Shambles / Who's Who stop quietly if the game
+  is no longer of their type when they wake up, instead of crashing on the next round. Unchanged
+  games loop exactly as before.
+
+### On verification
+
+`test_anon_admin.py` (88 checks) drives the real `manage()` / `manage_after_db()` / `validate()`,
+the real compat `Message.from_telethon` / `Update` / `Chat` / `CallbackQuery`, the project's real
+tables on in-memory SQLite, the real message-sending code and the real game screens and loops;
+only the network calls, the admin lookup, the spam check, the sleeps of the loops and the
+terminology download are replaced. The three updates of the report are rebuilt as they are logged.
+On the code as received **35 checks fail, with the three errors of the report**: the `TypeError` of
+`/status`, the `AttributeError ... 'query'` of the button, and `ValueError: Unsupported game type: 1`
+from `guess_game_countdown_to_start` -> `run_game` (also from the Punk Records and Shambles / Who's
+Who loops). On this version all 88 pass: the anonymous admin's `/status@one_piece_bountybot` (and
+12 other commands and spellings, with and without the bot name; the warning also in Persian) gets exactly one warning
+with a Delete button and no handler runs and no row is saved; normal messages, commands for another
+bot, unknown commands, a lone `/`, and a channel's messages get nothing; one warning per 15
+seconds per chat and not across chats; forum topics; unauthorized groups; an admin's tap on Delete
+removes the warning and the command, a member's tap only gets the alert; the button without a
+message gets the alert (English and Persian) and no error is reported; a second tap on the game
+buttons changes nothing, a first tap works, Cancel works, and the three hint loops end quietly when
+the type was swapped and keep looping when it wasn't. The 15 older test suites that fit
+the current code (1,279 checks) give the same results on the code as received and on this version
+(one more, for the Crew disband job, was written for an earlier version of that function and fails
+the same way on both). **What I could not
+verify:** a real Telegram group (I rely on Telethon's documented behaviour that an anonymous
+admin's message has no sender, and the code also copes with the group itself being the sender), and
+whether the bot has the "delete messages" right in your group (without it the command stays and
+only the warning is deleted).
 
 ## Known limitations / things worth knowing
 

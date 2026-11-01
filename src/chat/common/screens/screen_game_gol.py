@@ -11,6 +11,7 @@ from src.model.Game import Game
 from src.model.User import User
 from src.model.enums.Emoji import Emoji
 from src.model.game.GameOutcome import GameOutcome
+from src.model.game.GameType import GameType
 from src.model.game.guessorlife.GuessOrLife import GuessOrLife, PlayerType, PlayerInfo
 from src.model.wiki.SupabaseRest import SupabaseRest
 from src.model.wiki.Terminology import Terminology
@@ -307,6 +308,11 @@ async def run_game(
         return  # Game was deleted in the meantime (e.g. cancelled/expired)
 
     if game.is_finished():
+        return
+
+    # The game is not a Guess or Life one anymore (its type was changed while this was waiting),
+    # so there is no life to issue and the next run couldn't even tell how long to wait
+    if game.get_type() is not GameType.GUESS_OR_LIFE:
         return
 
     if game.is_opponent(user) and await timeout_opponent_guess_game(context, game):

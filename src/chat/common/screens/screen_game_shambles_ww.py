@@ -108,6 +108,11 @@ async def run_game(
     except DoesNotExist:
         return  # Game was deleted in the meantime (e.g. cancelled/expired)
 
+    # The game is not a Shambles or Who's Who one anymore (its type was changed while this was
+    # waiting), so there is no level to reduce and the next run couldn't tell how long to wait
+    if game.get_type() not in (GameType.SHAMBLES, GameType.WHOS_WHO):
+        return
+
     if not await should_proceed_after_hint_sleep(context, game, user):
         return
 
