@@ -9,7 +9,7 @@ APScheduler==3.10.4
 # (or run setup.sh, which installs this and any other system-level dependencies)
 Pillow~=10.4.0
 validators~=0.22.0
-pymysql~=1.1.1
+pymysql~=1.2.3
 # PostgreSQL driver, used when DB_TYPE=postgres (e.g. Supabase). pymysql is used when DB_TYPE=mysql
 psycopg2-binary>=2.9.10,<3
 pytz~=2023.3
