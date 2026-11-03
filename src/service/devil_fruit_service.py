@@ -58,6 +58,11 @@ from src.utils.math_utils import (
     get_random_int,
 )
 
+# The strength (in %) the ability of a newly created SMILE (the ones of the daily reward) can have.
+# The highest is 99: nobody gets a SMILE with a 100% ability
+SMILE_ABILITY_MIN_VALUE = 1
+SMILE_ABILITY_MAX_VALUE = 99
+
 
 def give_devil_fruit_to_user(
     devil_fruit: DevilFruit,
@@ -589,7 +594,7 @@ def create_smile() -> DevilFruit:
     ability: DevilFruitAbility = DevilFruitAbility()
     ability.devil_fruit = devil_fruit
     ability.ability_type = DevilFruitAbilityType.get_random_ability()
-    ability.value = get_random_int(1, 100)
+    ability.value = get_random_int(SMILE_ABILITY_MIN_VALUE, SMILE_ABILITY_MAX_VALUE)
     ability.save()
 
     return devil_fruit

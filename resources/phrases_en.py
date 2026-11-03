@@ -1897,9 +1897,8 @@ WARLORD_REVOCATION_NOTIFICATION_KEY = "Warlord revocation"
 # Notification - Legendary Pirate appointment
 LEGENDARY_PIRATE_APPOINTMENT_NOTIFICATION = (
     "Congratulations, you have been appointed as a Legendary Pirate!\n\n*Epithet*: {}\n\n"
-    "*Duration*: {}\n\n*Reason*: {}\n\n*Privileges*\n• Complete immunity from all combat-related"
-    " losses\n• Exemption from bounty taxes and income tax\n• Permanent boss status\n•"
-    " Immunity from Devil Fruit revocation"
+    "*Duration*: {}\n\n*Reason*: {}\n\n*Privileges*\n• No tax on gifts and loans, whether you"
+    " send or receive them\n• Permanent boss status\n• Immunity from Devil Fruit revocation"
 )
 LEGENDARY_PIRATE_APPOINTMENT_NOTIFICATION_PERMANENT_FOOTER = (
     "\n\n_You are now a permanent Legendary Pirate and will always appear on all global"
@@ -2322,7 +2321,7 @@ PLUNDER_LOSE = (
     + "\n\nYou now have a [฿*{}* loan]({}) towards {}"
 )
 PLUNDER_LOSE_IMMUNE = (
-    "{} have been caught trying to rob {}, but your Legendary Pirate status protected you from"
+    "{} have been caught trying to rob {}, but your Admiral status protected you from"
     " any penalties."
 )
 PLUNDER_LOSE_SENTENCE_REASON = "Failed plunder against {}"

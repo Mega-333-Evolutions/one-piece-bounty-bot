@@ -26,14 +26,11 @@ def get_tax_deductions(user: User) -> list[IncomeTaxDeduction]:
 
     deductions: list[IncomeTaxDeduction] = []
 
-    # Admin
+    # Admin (Admiral), completely exempt. Legendary Pirates used to be too and no longer are:
+    # IncomeTaxDeductionType.LEGENDARY_PIRATE stays defined only so that the income tax events
+    # saved back then can still be read and described
     if user.is_admin:
         deductions.append(IncomeTaxDeduction(IncomeTaxDeductionType.ADMIN, 100))
-        return deductions
-
-    # Legendary Pirate
-    if user.is_legendary_pirate():
-        deductions.append(IncomeTaxDeduction(IncomeTaxDeductionType.LEGENDARY_PIRATE, 100))
         return deductions
 
     # Devil Fruit

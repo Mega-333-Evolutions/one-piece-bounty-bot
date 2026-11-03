@@ -140,14 +140,23 @@ async def manage(
     if claimed_rows == 0:
         return
 
-    await collect_game_wagers_and_set_in_progress(
-        update,
-        game,
-        opponent=user,
-        should_remove_bounty_challenger=False,
-        should_set_cooldown_challenger=False,
-        should_set_global_cooldown_opponent=True,
-    )
+    try:
+        await collect_game_wagers_and_set_in_progress(
+            update,
+            game,
+            opponent=user,
+            should_remove_bounty_challenger=False,
+            should_set_cooldown_challenger=False,
+            should_set_global_cooldown_opponent=True,
+        )
+    except BaseException:
+        # The game could not be started and nothing was saved (the player has less bounty than
+        # the wager now, for example). Give the claim back, or this player would stay the
+        # opponent of a game he did not pay for, and nobody else could accept it
+        Game.update(opponent=None).where(
+            (Game.id == game.id) & (Game.opponent == user.id)
+        ).execute()
+        raise
 
     # Show challenge accepted alert
     await full_message_send(

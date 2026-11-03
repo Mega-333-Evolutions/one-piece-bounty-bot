@@ -2246,6 +2246,138 @@ admin's message has no sender, and the code also copes with the group itself bei
 whether the bot has the "delete messages" right in your group (without it the command stays and
 only the warning is deleted).
 
+## Round 3 (Nov 1 and Nov 3): Who's Who results, Admiral / Legendary Pirate privileges, two players pressing Accept together, Smile ability cap, two errors from the logs
+
+Eight things from your two messages, each reproduced first on the code of the previous delivery
+and then fixed. Two of them (1 and 2) turned out to be the same bug.
+
+### 1. Who's Who global challenge: the winner got no "you won", the loser no "you lost"
+
+**What was happening.** A player who typed the right answer ("Caribou") had the game saved as won,
+and then the bot went on to build the final picture for the result message. That picture is a file
+in the temp folder, and by the time a global challenge is answered it can be gone (the temp folder
+is emptied by the `TEMP_DIR_CLEANUP` timer, every 12 hours by default, and a global challenge waits
+for its opponent for hours). To get the picture again the game needs the
+character, and `get_guess_game_final_image_path()` handed it the plain `dict` the board is stored
+as (`WhosWho(**json_dict)`), so it crashed with `'dict' object has no attribute 'anime_image_url'`
+before one message was sent. The game was already won, so the second "Caribou" got "This game has
+ended". The loser's "you lost" depended on the winner's message having worked (private games) or
+was written in the language of the winner (global games: the footer of the notification).
+
+**What changed (`src/service/game_service.py`).**
+- `get_guess_game_final_image_path()` builds the board the way the game itself does (a real
+  `Character` / `Terminology` object), for Who's Who and Shambles.
+- `guess_game_validate_answer()`: the winner's message, the loser's message and the edit of the
+  group message are independent now. A failure in one (the picture, a photo Telegram refuses, a
+  player who blocked the bot) no longer stops the next one; the first problem is raised when
+  everything else was done, so that it is still reported. A player who blocked the bot is not an
+  error (`is_unreachable_recipient_error`).
+- `send_guess_game_result_message()` (new): the result goes with the final picture, and without
+  it (as plain text) if the picture can't be built or sent. The player always gets the result.
+- Every text is written in the language of the player who reads it: the winner's, the loser's and
+  the group's (`end_game`, `end_text_based_game` and the new helper set it per recipient and put the
+  caller's language back afterwards). Before, the loser's message and the footer of the notification
+  came out in the language of the player who finished the game.
+
+### 2. `FileNotFoundError: '/app/temp/....jpg'` then `'dict' object has no attribute 'anime_image_url'` (Nov 3, "Zeo")
+
+The same bug as 1, as it appears in the log: `WhosWho.__init__` looks for the image, it is not in
+`/app/temp` any more, the fall-back to the images that ship with the bot gets a `dict` instead of
+the character. Fixed by 1. (The other places that rebuild a board from its JSON,
+`get_generic_boards_for_guess_game()`, `Game.get_terminology()` and `get_board_object_from_json()`,
+already build the real objects.) Nothing in `cleanup_temp_dir()` was changed: it removes every file
+of the temp folder whatever its age (`... or True`, as in the PTB source), so a game image does not
+survive a cleanup; it is simply made again now.
+
+### 3. Admirals and Legendary Pirates
+
+- **Combat losses and income tax: Admirals** (the Admin rank, `User.is_admin`) are immune to losing
+  fights and plunders (no loan, nothing owed) and pay no income tax. **Legendary Pirates no longer
+  are**: they lose and pay like everybody else. (`user_has_combat_loss_immunity()` in
+  `user_service.py`, `get_tax_deductions()` in `income_tax_service.py`. The enum value
+  `IncomeTaxDeductionType.LEGENDARY_PIRATE` stays so that income tax events saved before can still be
+  read.)
+- **Tax on gifts and loans (`get_transaction_tax()` in `bounty_service.py`): 0 whenever an Admiral
+  or a Legendary Pirate is the sender or the receiver**, whatever the rank of the other side is. It
+  used to let the sender's own rank decide when the sender was a boss himself, so a Pirate King or a
+  Warlord sending to an Admiral or a Legendary Pirate still paid (with his discount); for a regular
+  player sending to them, or them sending to anybody, it was already 0. Pirate Kings and Warlords
+  keep their discount when they send to a regular player; the crew discount and the Devil Fruit
+  ability apply as before to everybody else.
+- Texts: the Legendary Pirate appointment notification lists the new privileges ("No tax on gifts
+  and loans, whether you send or receive them"), and the "you were caught robbing but were protected"
+  message says Admiral (English and Persian).
+
+### 4. Two players pressing Accept on the same global challenge
+
+**What was happening.** The Accept button stays on every screen until the bot has edited the
+message, which takes a moment after the first press. A second press in that moment read the same
+challenge, took the wager again or answered "Item in wrong status", and the two raced to edit the
+message (the flicker, the errors). Worse, a Cancel by the challenger in that moment deleted the game
+that had just started.
+
+**What changed.**
+- `screen_game_opponent_confirmation.py` (the Accept / Cancel buttons under the challenge): only a
+  challenge still waiting for its opponent reacts. Any other press is ignored completely: nothing is
+  sent or edited or deleted, one `INFO` line is logged, the button just gets its empty answer. The
+  press that gets the game does so with one conditional `UPDATE ... WHERE status = awaiting`, so two
+  presses at the very same time can't both start it. If starting the game fails (the player has less
+  bounty than the wager now, for example) the claim is given back and the challenge can be accepted
+  again.
+- `screen_game_global_start_opponent.py` (the Accept that goes through the private chat) already had
+  the claim; it now gives it back the same way when starting fails, so a player does not stay the
+  opponent of a game he did not pay for.
+
+**Not changed.** The challenger's own "Start as global" button (in private) pressed at the very
+moment somebody presses Accept in the group has no claim of its own on the challenger's side. And an
+error *after* both wagers were taken, while the game is being started (sending the first board, for
+example), is reported as before and leaves the wagers held with the game started but not completely
+saved; before this change the same failure left the challenge open, where another Accept would have
+charged both players a second time. It is rare, and putting it right means refunding both players,
+which needs its own look.
+
+### 5. Smiles: the ability is 1 to 99%, never 100
+
+`create_smile()` (the only place a Smile is made: the daily reward) drew the ability from 1 to 100;
+it is `SMILE_ABILITY_MIN_VALUE` (1) to `SMILE_ABILITY_MAX_VALUE` (99) now, evenly. **Smiles that
+already exist are not changed.** To bring the ones with 100% down to 99% (optional, run it once on
+the database):
+
+```sql
+UPDATE devil_fruit_ability SET value = 99
+WHERE value = 100 AND devil_fruit_id IN (SELECT id FROM devil_fruit WHERE category = 6);
+```
+
+### 6. `/status` crashed on `FloodWaitError ... (caused by GetUserPhotosRequest)` (Nov 3)
+
+Telegram limits how often a bot may look up profile photos and answers the ones over the limit with
+a flood wait (3 seconds here); the compat layer turns it into `RetryAfter`, and the bounty poster
+(which only wants the photo as its portrait) let it take the whole command down.
+`get_user_profile_photo()` in `user_service.py` now:
+- waits the flood wait out **once** when it is up to 5 seconds (`PROFILE_PHOTO_MAX_FLOOD_WAIT_SECONDS`)
+  and tries again, so the player normally still gets his own photo on the poster;
+- remembers the flood wait for the whole bot: lookups that start while it is on don't hit Telegram
+  again (they wait for it, or skip the photo when it is longer than 5 seconds);
+- on anything else Telegram refuses (timeout, network, bad request...) or if it still fails after
+  the wait: no photo, and the poster is made with the default portrait, exactly as for a player who
+  has no profile photo. A warning is logged, nothing is raised.
+
+### On verification
+
+New test files, all driven through the real functions and screens on in-memory SQLite with the
+project's real tables; only the Telegram edge, the dice, the clock and the sleeps are replaced.
+Checks that fail on the previous delivery / total checks, and all of them pass on this version:
+`test_round3_ww.py` 18 / 62 (including the `'dict'` error and the loser's message in the right
+language); `test_round3_tax.py` 26 / 70; `test_round3_accept.py` 62 / 295 (two accepts at the same
+time, a Cancel right after an accept, a failing start in the group and in private, a direct
+challenge); `test_round3_photo.py` 23 / 34 (through the real `send_bounty_poster()` and the real
+poster generator, with 3 s, lasting and 120 s flood waits, and a burst of players); `test_round3_smile.py`
+5 / 14 (30,000 Smiles: 275 had 100% before). The 15 older suites and `test_anon_admin.py` give the
+same results as before (the Crew disband suite was written for an older version of that function and
+fails on both). **What I could not verify:** the real Telegram (how long its flood waits really are,
+and whether 5 seconds is the right point to stop waiting - it is one constant), and what the live
+database holds (see the SQL in 5 for Smiles that already exist).
+
 ## Known limitations / things worth knowing
 
 A few places where Telethon's model doesn't map 1:1 onto Bot API's, in order

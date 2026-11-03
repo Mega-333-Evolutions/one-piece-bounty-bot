@@ -6,7 +6,14 @@ from typing import Tuple, Callable
 
 from peewee import DoesNotExist
 from src.tg_compat import Update
-from src.tg_compat.error import RetryAfter, BadRequest, TimedOut, TelegramError
+from src.tg_compat.error import (
+    RetryAfter,
+    BadRequest,
+    Forbidden,
+    TimedOut,
+    TelegramError,
+    BOT_TO_BOT_MARKER,
+)
 from src.tg_compat.ext import ContextTypes
 
 import constants as c
@@ -232,32 +239,43 @@ async def end_game(
         if game_outcome is GameOutcome.CHALLENGER_WON:
             notification_users.append(game.opponent)
 
-    for u in notification_users:
-        footer_text = ""
-        if add_time_and_terminology:
-            footer_text = phrases.GAME_OUTCOME_NOTIFICATION_TIME_TERMINOLOGY.format(
-                get_global_time_based_text(game, u),
-                get_guess_game_result_term_text(game.get_terminology()),
-            )
-        await send_notification(context, u, GameOutcomeNotification(game, u, footer_text))
+    # The texts below are for people with a language of their own (each player, the group), and this
+    # runs in the task of whoever finished the game: the language of that task is theirs and has to
+    # be theirs again when this returns, since the caller goes on to write its own messages for them
+    # (the winner's "you won" in guess games was written in the language of the group)
+    caller_language = get_current_language()
+    try:
+        for u in notification_users:
+            footer_text = ""
+            if add_time_and_terminology:
+                # The footer is part of the text this player is going to read, so it is written in
+                # their language, not in the one of the player who finished the game
+                set_current_language(u.get_language())
+                footer_text = phrases.GAME_OUTCOME_NOTIFICATION_TIME_TERMINOLOGY.format(
+                    get_global_time_based_text(game, u),
+                    get_guess_game_result_term_text(game.get_terminology()),
+                )
+            await send_notification(context, u, GameOutcomeNotification(game, u, footer_text))
 
-    # Edit message in group, if global and started from a group
-    if game.is_global() and game.group_chat is not None:
-        set_current_language(game.group_chat.group.get_language())
-        ot_text = get_text(game, True, game_outcome=game_outcome, is_for_group_global=True)
-        context.application.create_task(
-            full_media_send(
-                context,
-                caption=ot_text,
-                chat_id=game.group_chat.group.tg_group_id,
-                edit_message_id=game.message_id,
-                add_delete_button=True,
-                edit_only_caption_and_keyboard=True,
-                group_chat=game.group_chat,
-                authorized_users=[game.challenger],
-                ignore_bad_request_exception=True,
+        # Edit message in group, if global and started from a group
+        if game.is_global() and game.group_chat is not None:
+            set_current_language(game.group_chat.group.get_language())
+            ot_text = get_text(game, True, game_outcome=game_outcome, is_for_group_global=True)
+            context.application.create_task(
+                full_media_send(
+                    context,
+                    caption=ot_text,
+                    chat_id=game.group_chat.group.tg_group_id,
+                    edit_message_id=game.message_id,
+                    add_delete_button=True,
+                    edit_only_caption_and_keyboard=True,
+                    group_chat=game.group_chat,
+                    authorized_users=[game.challenger],
+                    ignore_bad_request_exception=True,
+                )
             )
-        )
+    finally:
+        set_current_language(caller_language)
 
 
 def get_text(
@@ -810,12 +828,21 @@ def get_guess_game_final_image_path(game: Game) -> str:
 
     json_dict = json.loads(game.board)
 
-    match game.type:
+    # The board is built the way the game itself builds it every time it needs it
+    # (get_generic_boards_for_guess_game), with the character/terminology as the real object and not
+    # as the plain dict it is stored as: a board whose image file is gone has to get it again (from
+    # the images that come with the bot, or downloading it) and for that it needs the real
+    # Character. The file goes when the temp folder is cleaned (every 12 hours by default) and a
+    # global challenge waits for its opponent for hours: the player who finished it then got
+    # "'dict' object has no attribute 'anime_image_url'" instead of his result
+    match game.get_type():
         case GameType.WHOS_WHO:
-            return WhosWho(**json_dict).image_path
+            character = Character(**json_dict.pop("character"))
+            return WhosWho(character=character, **json_dict).image_path
 
         case GameType.SHAMBLES:
-            shambles: Shambles = Shambles(**json_dict)
+            terminology = Terminology(**json_dict.pop("terminology"))
+            shambles: Shambles = Shambles(terminology=terminology, **json_dict)
             shambles.set_grid_image(highlight_answer=True)
 
             return shambles.image_path
@@ -942,6 +969,90 @@ async def get_guess_game_users_to_send_message_to(
     return users
 
 
+def is_unreachable_recipient_error(error: Exception) -> bool:
+    """
+    Check if an error of Telegram only says that a player can't be written to: he blocked the bot,
+    his account is gone, the bot is not able to resolve him, or he is a bot. There is nobody to tell
+    in that case, which is not a failure of the game or of the bot.
+
+    :param error: The error
+    :return: True if the recipient is unreachable
+    """
+
+    if isinstance(error, Forbidden):
+        return True
+
+    if isinstance(error, BadRequest):
+        message = str(error).lower()
+        return any(
+            snippet in message
+            for snippet in ("cannot start conversations", "invalid peer", BOT_TO_BOT_MARKER)
+        )
+
+    return False
+
+
+async def send_guess_game_result_message(
+    context: ContextTypes.DEFAULT_TYPE,
+    recipient: User,
+    text: str,
+    image_path: str = None,
+    keyboard: list[list[Keyboard]] = None,
+) -> None:
+    """
+    Tell a player how a guess game ended: the final image with the result as its caption or, when
+    there is no image or Telegram doesn't take it, just the result. The game is over (and paid)
+    when this is called, so the player has to be told whatever happens to the picture.
+    A player who can't be reached (he blocked the bot...) is not an error: there is nobody to tell.
+    If the image was the problem, the player is told without it and the problem is raised after
+    that, so that it is reported.
+
+    :param context: The context
+    :param recipient: The player to tell
+    :param text: The result, already written in the language of the player
+    :param image_path: The path of the final image, if there is one
+    :param keyboard: The keyboard
+    :return: None
+    """
+
+    image_error: Exception | None = None
+    if image_path is not None:
+        try:
+            await full_media_send(
+                context,
+                chat_id=recipient.tg_user_id,
+                caption=text,
+                saved_media=SavedMedia(media_type=SavedMediaType.PHOTO, file_name=image_path),
+                ignore_forbidden_exception=True,
+                keyboard=keyboard,
+            )
+            return
+        except Exception as e:
+            if is_unreachable_recipient_error(e):
+                logging.info(f"Could not send the result of a game to user {recipient.id}: {e}")
+                return
+
+            # A file that is gone, a photo Telegram refuses, a caption that is too long...: the
+            # text alone does the job
+            logging.warning(
+                f"Could not send the final image of a game to user {recipient.id}, sending the"
+                f" result without it: {type(e).__name__}: {e}"
+            )
+            image_error = e
+
+    try:
+        await full_message_send(context, text, chat_id=recipient.tg_user_id, keyboard=keyboard)
+    except Exception as e:
+        if is_unreachable_recipient_error(e):
+            logging.info(f"Could not send the result of a game to user {recipient.id}: {e}")
+            return
+
+        raise e
+
+    if image_error is not None:
+        raise image_error
+
+
 async def guess_game_validate_answer(
     update: Update, context: ContextTypes.DEFAULT_TYPE, game: Game, user: User
 ) -> None:
@@ -966,6 +1077,23 @@ async def guess_game_validate_answer(
     user.should_update_model = False  # To avoid re-writing bounty
     loser = challenger if user == opponent else opponent
 
+    # The game is over (and paid) from here on, and what is left is telling the winner, the loser
+    # and the group how it went. Each of those is independent of the others (the final image can be
+    # gone from the temp folder, Telegram can refuse a photo, a player can have blocked the bot...),
+    # so none of them is allowed to stop the next one: a failure in the first of them used to leave
+    # the winner without his "you won" - and the loser without his "you lost". The first failure is
+    # raised when everything else is done, so that it is reported
+    errors: list[Exception] = []
+    terminology: Terminology = game.get_terminology()
+    bet_amount = game.wager // 2
+
+    image_path: str | None = None
+    try:
+        image_path = get_guess_game_final_image_path(game)
+    except Exception as e:
+        logging.exception(f"No final image for game {game.id}, sending the result without it")
+        errors.append(e)
+
     outbound_keyboard: list[list[Keyboard]] = []
 
     if not game.is_global():
@@ -979,61 +1107,84 @@ async def guess_game_validate_answer(
             ]
         ]
 
-    terminology: Terminology = game.get_terminology()
-    term_text_addition = get_guess_game_result_term_text(terminology)
-    image_path: str = get_guess_game_final_image_path(game)
+    def get_result_text(recipient: User, is_winner: bool) -> str:
+        """
+        The result for a player, in the language of that player. Winner and loser may each have
+        a different one, and neither is necessarily the one of the player who sent the answer
+        """
+
+        previous_language = get_current_language()
+        set_current_language(recipient.get_language())
+        try:
+            term_text_addition = get_guess_game_result_term_text(terminology)
+            if is_winner:
+                return (
+                    phrases.GUESS_GAME_CORRECT_ANSWER.format(term_text_addition)
+                    + "\n\n"
+                    + get_outcome_text(True, bet_amount)
+                )
+
+            return (
+                phrases.GUESS_GAME_OPPONENT_CORRECT_ANSWER.format(term_text_addition)
+                + "\n\n"
+                + get_outcome_text(False, bet_amount)
+            )
+        finally:
+            set_current_language(previous_language)
 
     # Send message to winner
-    await set_user_private_screen(user, should_reset=True)
-    bet_amount = game.wager // 2
-    logging.info(f"WAGER RESULT - Winner: user_id={user.id}, original_bet_amount={bet_amount}, total_wager_pool={game.wager}, amount_displayed={bet_amount}")
-    winner_caption: str = (
-        phrases.GUESS_GAME_CORRECT_ANSWER.format(term_text_addition)
-        + "\n\n"
-        + get_outcome_text(True, bet_amount)
-    )
-    await full_media_send(
-        context,
-        chat_id=user.tg_user_id,
-        caption=winner_caption,
-        saved_media=SavedMedia(media_type=SavedMediaType.PHOTO, file_name=image_path),
-        ignore_forbidden_exception=True,
-        keyboard=outbound_keyboard,
-    )
-
-    # If global, we can stop here. No message sent to loser since the notification triggered in end_game will handle it,
-    # same for group message
-    if game.is_global():
-        return
-
-    # Send message to loser
-    await set_user_private_screen(loser, should_reset=True)
-    logging.info(f"WAGER RESULT - Loser: user_id={loser.id}, original_bet_amount={bet_amount}, total_wager_pool={game.wager}, amount_displayed={bet_amount}")
-    loser_caption: str = (
-        phrases.GUESS_GAME_OPPONENT_CORRECT_ANSWER.format(term_text_addition)
-        + "\n\n"
-        + get_outcome_text(False, bet_amount)
-    )
-    await full_media_send(
-        context,
-        chat_id=loser.tg_user_id,
-        caption=loser_caption,
-        saved_media=SavedMedia(media_type=SavedMediaType.PHOTO, file_name=image_path),
-        ignore_forbidden_exception=True,
-        keyboard=outbound_keyboard,
-    )
-
-    # Update group message
-    if game.group_chat is not None:
-        ot_text = get_text(game, True, game_outcome=outcome, terminology=terminology)
-        await full_media_send(
-            context,
-            caption=ot_text,
-            group_chat=game.group_chat,
-            edit_message_id=game.message_id,
-            edit_only_caption_and_keyboard=True,
-            ignore_bad_request_exception=True,
+    try:
+        await set_user_private_screen(user, should_reset=True)
+        logging.info(
+            f"WAGER RESULT - Winner: user_id={user.id}, original_bet_amount={bet_amount},"
+            f" total_wager_pool={game.wager}, amount_displayed={bet_amount}"
         )
+        await send_guess_game_result_message(
+            context, user, get_result_text(user, True), image_path, outbound_keyboard
+        )
+    except Exception as e:
+        logging.exception(f"Problem while telling the winner of game {game.id} the result")
+        errors.append(e)
+
+    # If global, no message is sent to the loser here, since the notification triggered in
+    # end_game does it, same for the group message
+    if not game.is_global():
+        # Send message to loser
+        try:
+            await set_user_private_screen(loser, should_reset=True)
+            logging.info(
+                f"WAGER RESULT - Loser: user_id={loser.id}, original_bet_amount={bet_amount},"
+                f" total_wager_pool={game.wager}, amount_displayed={bet_amount}"
+            )
+            await send_guess_game_result_message(
+                context, loser, get_result_text(loser, False), image_path, outbound_keyboard
+            )
+        except Exception as e:
+            logging.exception(f"Problem while telling the loser of game {game.id} the result")
+            errors.append(e)
+
+        # Update group message, written in the language of the group
+        if game.group_chat is not None:
+            player_language = get_current_language()
+            try:
+                set_current_language(game.group_chat.group.get_language())
+                ot_text = get_text(game, True, game_outcome=outcome, terminology=terminology)
+                await full_media_send(
+                    context,
+                    caption=ot_text,
+                    group_chat=game.group_chat,
+                    edit_message_id=game.message_id,
+                    edit_only_caption_and_keyboard=True,
+                    ignore_bad_request_exception=True,
+                )
+            except Exception as e:
+                logging.exception(f"Could not update the group message of game {game.id}")
+                errors.append(e)
+            finally:
+                set_current_language(player_language)
+
+    if errors:
+        raise errors[0]
 
 
 def get_guess_game_play_deeplink_button(game: Game) -> Keyboard:
@@ -1097,7 +1248,6 @@ async def end_text_based_game(
     """
 
     terminology: Terminology = game.get_terminology()
-    term_text_addition = get_guess_game_result_term_text(terminology)
 
     # If winner or loser text doesn't end with 3 new lines (just enough to add 3)
     if not winner_text.endswith("\n\n\n"):
@@ -1106,9 +1256,16 @@ async def end_text_based_game(
         winner_text += "\n" * missing_new_lines
         loser_text += "\n" * missing_new_lines
 
-    # Add terminology text
-    winner_text += term_text_addition
-    loser_text += term_text_addition
+    # Add terminology text, in the language of each of them (they may not share one, nor the one
+    # of the player who sent the answer, which is the one this is running in)
+    player_language = get_current_language()
+    try:
+        set_current_language(winner.get_language())
+        winner_text += get_guess_game_result_term_text(terminology)
+        set_current_language(loser.get_language())
+        loser_text += get_guess_game_result_term_text(terminology)
+    finally:
+        set_current_language(player_language)
 
     outbound_keyboard: list[list[Keyboard]] = []
 

@@ -1226,7 +1226,7 @@ class PlunderLog(Log):
 
         if self.object.get_status() is GameStatus.LOST:
             loan: BountyLoan | None = self.object.get_loan()
-            # No loan exists if the loser had combat-loss immunity (e.g. a Legendary Pirate),
+            # No loan exists if the loser had combat-loss immunity (e.g. an Admiral),
             # in which case the plunder is still marked LOST but nothing was actually owed
             self.effective_belly = loan.repay_amount if loan is not None else self.object.belly
         else:
@@ -1265,8 +1265,8 @@ class PlunderLog(Log):
                         get_belly_formatted(self.effective_belly), loan.get_deeplink()
                     )
                 else:
-                    # No loan exists if the opponent had combat-loss immunity (e.g. a
-                    # Legendary Pirate), in which case nothing was actually gained
+                    # No loan exists if the opponent had combat-loss immunity (e.g. an
+                    # Admiral), in which case nothing was actually gained
                     outcome_text = phrases.PLUNDER_LOG_ITEM_DETAIL_TEXT_WON_IMMUNE
             else:
                 if self.user_is_challenger:

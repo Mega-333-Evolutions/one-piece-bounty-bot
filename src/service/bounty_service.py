@@ -42,7 +42,7 @@ from src.service.income_tax_service import (
 )
 from src.service.location_service import reset_location
 from src.service.message_service import full_message_or_media_send_or_edit
-from src.service.user_service import get_boss_type, user_is_boss
+from src.service.user_service import get_boss_type
 from src.utils.math_utils import subtract_percentage_from_value
 from src.utils.string_utils import (
     get_unit_value_from_string,
@@ -531,9 +531,13 @@ def should_reset_bounty(run_time: datetime) -> bool:
     return run_time.month != next_run_time.month and (run_time.month - 1) % 2 == 1
 
 
+# Admins (Admirals) and Legendary Pirates neither pay nor cause the tax on gifts and loans
+TRANSACTION_TAX_EXEMPT_BOSS_TYPES = (BossType.ADMIN, BossType.LEGENDARY_PIRATE)
+
+
 def get_transaction_tax(sender: User, receiver: User, base_tax: float) -> float:
     """
-    Get the transaction tax
+    Get the transaction tax (the tax on gifts and loans)
     :param base_tax: The base tax
     :param sender: The sender
     :param receiver: The receiver
@@ -542,19 +546,22 @@ def get_transaction_tax(sender: User, receiver: User, base_tax: float) -> float:
 
     tax = base_tax
 
-    if user_is_boss(sender) or (receiver is not None and user_is_boss(receiver)):
-        boss_type: BossType = (
-            get_boss_type(sender) if user_is_boss(sender) else get_boss_type(receiver)
-        )
+    sender_boss_type: BossType | None = get_boss_type(sender)
+    receiver_boss_type: BossType | None = get_boss_type(receiver) if receiver is not None else None
 
-        # Admins and legendary pirates, no tax
-        if boss_type in (BossType.ADMIN, BossType.LEGENDARY_PIRATE):
-            return 0
-        # Pirate King and Warlord
-        elif boss_type in [BossType.PIRATE_KING, BossType.WARLORD] and user_is_boss(sender):
-            tax = subtract_percentage_from_value(
-                base_tax, Env.PIRATE_KING_TRANSACTION_TAX_DISCOUNT.get_float()
-            )
+    # Admins (Admirals) and Legendary Pirates, no tax, both when they send and when they receive,
+    # whatever the rank of the other side is
+    if (
+        sender_boss_type in TRANSACTION_TAX_EXEMPT_BOSS_TYPES
+        or receiver_boss_type in TRANSACTION_TAX_EXEMPT_BOSS_TYPES
+    ):
+        return 0
+
+    # Pirate King and Warlord, discount when they are the ones sending
+    if sender_boss_type in (BossType.PIRATE_KING, BossType.WARLORD):
+        tax = subtract_percentage_from_value(
+            base_tax, Env.PIRATE_KING_TRANSACTION_TAX_DISCOUNT.get_float()
+        )
 
     # Send and receiver in same crew, percentage deduction
     if receiver is not None and sender.in_same_crew(receiver):

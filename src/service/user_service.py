@@ -1,11 +1,13 @@
+import asyncio
 import logging
+import time
 from pathlib import Path
 from typing import Sequence, Optional
 
 from src.tg_compat import Update, PhotoSize, UserProfilePhotos, File, ChatMember, Message
 from src.tg_compat import User as TelegramUser, ChatMemberAdministrator
 from src.tg_compat.constants import ChatMemberStatus
-from src.tg_compat.error import BadRequest, ChatMigrated, TimedOut
+from src.tg_compat.error import BadRequest, ChatMigrated, RetryAfter, TelegramError, TimedOut
 from src.tg_compat.ext import ContextTypes
 
 import constants as c
@@ -21,15 +23,37 @@ from src.service.leaderboard_service import get_current_leaderboard_rank
 from src.utils.download_utils import generate_temp_file_path
 
 
+# Telegram limits how many profile photo lookups a bot may make in a short time, and answers the
+# ones over the limit with a "flood wait": a few seconds during which every lookup is refused.
+# The wait is for the whole bot, not for one user, so a burst of /status commands (each one looks
+# up a photo for its poster) from different players is enough to trigger it. A wait of up to this
+# many seconds is waited out - once - before the lookup is tried again; a longer one is not worth
+# keeping the command waiting for, so the photo is skipped instead
+PROFILE_PHOTO_MAX_FLOOD_WAIT_SECONDS = 5
+# Added to every flood wait that is waited out, as Telegram counts it on its own clock
+PROFILE_PHOTO_FLOOD_WAIT_MARGIN_SECONDS = 0.5
+
+# time.monotonic() value until which every profile photo lookup is on hold because of a flood
+# wait (0 when none is). Shared by the lookups running at the same time, so that the ones starting
+# during a flood wait do not hit Telegram again (and get refused again) before it is over
+_profile_photo_hold_until: float = 0.0
+
+
 async def get_user_profile_photo(
     update: Update, telegram_user: TelegramUser = None
 ) -> str | None:
     """
-    Gets the user's profile photo
+    Gets the user's profile photo.
+    The photo is only a decoration (of the bounty poster), so this never fails because Telegram
+    refuses to hand it over: on a flood wait it waits once (if the wait is short) and tries
+    again, and if the photo still can't be fetched the result is None, exactly as for a user
+    who has no photo, and the poster is made with the default portrait
     :param update: Telegram update
     :param telegram_user: Optional Telegram user to fetch the photo for
-    :return: The path of the user's profile photo
+    :return: The path of the user's profile photo, None if there is none or it can't be fetched
     """
+
+    global _profile_photo_hold_until
 
     if telegram_user is None:
         # Anonymous admin, no photo available
@@ -39,6 +63,49 @@ async def get_user_profile_photo(
 
     if telegram_user is None:
         return None
+
+    telegram_user_id = getattr(telegram_user, "id", None)
+
+    for attempt in range(2):
+        # A flood wait is on, started by the previous attempt or by another lookup running at the
+        # same time: wait it out if it is short, otherwise do without the photo
+        wait_seconds = _profile_photo_hold_until - time.monotonic()
+        if wait_seconds > PROFILE_PHOTO_MAX_FLOOD_WAIT_SECONDS:
+            logging.warning(
+                f"Skipping the profile photo of user {telegram_user_id}: Telegram asked to wait"
+                f" {wait_seconds:.0f} more seconds before the next lookup"
+            )
+            return None
+        if wait_seconds > 0:
+            await asyncio.sleep(wait_seconds)
+
+        try:
+            return await _download_user_profile_photo(telegram_user)
+        except RetryAfter as ra:
+            _profile_photo_hold_until = max(
+                _profile_photo_hold_until,
+                time.monotonic() + float(ra.retry_after) + PROFILE_PHOTO_FLOOD_WAIT_MARGIN_SECONDS,
+            )
+            logging.warning(
+                f"Flood wait of {ra.retry_after} seconds getting the profile photo of user"
+                f" {telegram_user_id} (attempt {attempt + 1} of 2)"
+            )
+        except TelegramError as te:
+            # Any other refusal or network failure: the photo is not worth failing the command for
+            logging.warning(f"Failed to get the profile photo of user {telegram_user_id}: {te}")
+            return None
+
+    # Refused again after waiting once
+    return None
+
+
+async def _download_user_profile_photo(telegram_user: TelegramUser) -> str | None:
+    """
+    Downloads the last profile photo that the user has set
+    :param telegram_user: The Telegram user to download the photo of
+    :return: The path of the downloaded photo, None if the user has none
+    :raises TelegramError: If Telegram refuses the lookup or the download, RetryAfter included
+    """
 
     # Get user's last photo
     photo_path: Optional[Path] = None
@@ -99,12 +166,13 @@ def get_boss_type(user: User, group_chat: GroupChat = None) -> BossType | None:
 
 def user_has_combat_loss_immunity(user: User) -> bool:
     """
-    Returns True if the user is immune from combat-related losses
+    Returns True if the user is immune from combat-related losses (fights and plunders).
+    Only Admirals (the Admin rank) are. Legendary Pirates used to be and no longer are
     :param user: The user
     :return: True if the user is immune from combat-related losses
     """
 
-    return user.is_legendary_pirate()
+    return bool(user.is_admin)
 
 
 def user_is_boss(user: User, group_chat: GroupChat = None) -> bool:

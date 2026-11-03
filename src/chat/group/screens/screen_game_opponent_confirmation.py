@@ -1,3 +1,4 @@
+import logging
 from enum import StrEnum
 
 from src.tg_compat import Update
@@ -9,7 +10,6 @@ from src.model.Game import Game
 from src.model.User import User
 from src.model.enums.GameStatus import GameStatus
 from src.model.enums.ReservedKeyboardKeys import ReservedKeyboardKeys
-from src.model.error.GroupChatError import GroupChatError, GroupChatException
 from src.model.pojo.Keyboard import Keyboard
 from src.service.game_service import (
     delete_game,
@@ -44,6 +44,23 @@ async def manage(
     # Get the game from validation, will handle error messages
     game = await validate_game(update, context, inbound_keyboard)
     if game is None:
+        return
+
+    # Only a challenge that is still waiting for its opponent can be accepted, rejected or
+    # cancelled from this message; every other press is a late one and is ignored completely.
+    # The buttons stay on every player's screen until the bot has edited the message, which
+    # takes a moment after the first Accept has been claimed. Anything pressed in that moment -
+    # a second Accept of an open challenge, or the challenger's Cancel right after somebody
+    # accepted - reaches a game that is already being started, whose message is being edited
+    # right now. Answering it would write over that message ("Item in wrong status" error), or,
+    # worse, delete the game that just started (the "not enough bounty" and "cancel" answers),
+    # losing the stakes both players have just paid. Nothing may happen instead.
+    if game.get_status() is not GameStatus.AWAITING_OPPONENT_CONFIRMATION:
+        logging.info(
+            f"Ignored a press of user {user.id} on game {game.id}: it is no longer waiting for"
+            f" its opponent (status {game.get_status().name})"
+        )
+        user.should_update_model = False
         return
 
     # User clicked on cancel button or opponent rejected
@@ -99,28 +116,39 @@ async def manage(
         )
         return
 
-    # Wrong status
-    if game.get_status() is not GameStatus.AWAITING_OPPONENT_CONFIRMATION:
-        raise GroupChatException(GroupChatError.ITEM_IN_WRONG_STATUS)
-
     # Atomically claim this Accept: only proceed if the game is still awaiting confirmation.
-    # Pressing Accept more than once in quick succession fires more than one callback for the
-    # same button before the first press has finished processing; without this claim, every
-    # one of those would independently pass the status check above (all reading the same
-    # not-yet-updated game), then all deduct the wager and start the game - causing the
-    # message to flicker between the game starting, an error, and back again as they raced to
-    # edit it. Only the press that wins this claim proceeds; every other one is ignored.
+    # The status was read above and is written here, and nothing but this conditional UPDATE
+    # keeps that pair safe when two presses are handled at the same time (another process, or
+    # two handlers interleaving at an await): both would pass the check above, deduct the wager
+    # and start the game, and the message would flicker between the game starting and an error
+    # as they raced to edit it. Only the press that wins this claim proceeds, the other one is
+    # ignored.
+    # The chosen opponent of a direct challenge, if any
+    opponent_id_before_start = game.opponent_id
     claimed_rows = (
         Game.update(status=GameStatus.IN_PROGRESS)
         .where((Game.id == game.id) & (Game.status == GameStatus.AWAITING_OPPONENT_CONFIRMATION))
         .execute()
     )
     if claimed_rows == 0:
+        logging.info(f"Ignored the Accept of user {user.id} on game {game.id}: lost the claim")
+        user.should_update_model = False
         return
 
     # Will save game later to avoid doubling wager without actually starting game
-    await collect_game_wagers_and_set_in_progress(
-        update, game, challenger=challenger, opponent=user, should_save_game=False
-    )
+    try:
+        await collect_game_wagers_and_set_in_progress(
+            update, game, challenger=challenger, opponent=user, should_save_game=False
+        )
+    except BaseException:
+        # The game could not be started and nothing was saved (a player has less bounty than the
+        # wager now, for example). Give the claim back, or the challenge would stay "in progress"
+        # without an opponent and ignore everybody who presses Accept from now on
+        Game.update(status=GameStatus.AWAITING_OPPONENT_CONFIRMATION).where(
+            (Game.id == game.id)
+            & (Game.status == GameStatus.IN_PROGRESS)
+            & (Game.opponent == opponent_id_before_start)
+        ).execute()
+        raise
 
     await dispatch_game(update, context, user, inbound_keyboard, game)
