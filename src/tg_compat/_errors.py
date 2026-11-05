@@ -33,6 +33,7 @@ from .error import (
     USER_DEACTIVATED_MESSAGE,
     CHAT_NOT_ACCESSIBLE_MESSAGE,
     MESSAGE_TO_EDIT_NOT_FOUND_MESSAGE,
+    TELEGRAM_INTERNAL_ERROR_MESSAGE,
 )
 
 
@@ -57,6 +58,15 @@ _ForbiddenError = _lookup("ForbiddenError")
 _UnauthorizedError = _lookup("UnauthorizedError")
 _BadRequestError = _lookup("BadRequestError")
 _NotFoundError = _lookup("NotFoundError")
+# Telegram's own failures (500): RpcCallFailError, RpcMcgetFailError, InterdcCallErrorError,
+# InterdcCallRichErrorError and the rest of the family all derive from this one
+_ServerError = _lookup("ServerError")
+_TimedOutError = _lookup("TimedOutError")
+
+# The start of the text Telethon gives up with, as a bare ValueError, when Telegram answered a
+# request with internal errors too many times in a row and the client was not asked to raise the
+# last of those errors instead (see raise_last_call_error in runtime.py)
+_REQUEST_UNSUCCESSFUL_PREFIX = "Request was unsuccessful"
 
 
 async def translate_errors(coro):
@@ -113,6 +123,19 @@ async def translate_errors(coro):
         raise BadRequest(str(e)) from e
     except _NotFoundError as e:
         raise BadRequest(str(e)) from e
+    except _ServerError as e:
+        # Telegram failed, not the request: its servers answered with an internal error (Telethon
+        # already retried a few times before this reached us). Not a bug of the bot and gone
+        # sooner or later, so a NetworkError, which callers and manage_message.py treat as such
+        raise NetworkError(f"{TELEGRAM_INTERNAL_ERROR_MESSAGE} ({type(e).__name__}): {e}") from e
+    except _TimedOutError as e:
+        raise TimedOut(f"Telegram timed out: {e}") from e
+    except ValueError as e:
+        if str(e).startswith(_REQUEST_UNSUCCESSFUL_PREFIX):
+            # The same thing, as reported by a Telethon that was not asked to say what the last
+            # error was: all it says is how many times it tried
+            raise NetworkError(f"{TELEGRAM_INTERNAL_ERROR_MESSAGE} ({e})") from e
+        raise TelegramError(str(e)) from e
     except (TimeoutError, ConnectionError, OSError) as e:
         raise TimedOut(str(e)) from e
     except TelegramError:

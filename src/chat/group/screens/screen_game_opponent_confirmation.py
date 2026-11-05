@@ -5,7 +5,7 @@ from src.tg_compat import Update
 from src.tg_compat.ext import ContextTypes
 
 import resources.phrases as phrases
-from src.chat.common.screens.screen_game_manage import dispatch_game
+from src.chat.common.screens.screen_game_manage import dispatch_game, end_game_that_did_not_start
 from src.model.Game import Game
 from src.model.User import User
 from src.model.enums.GameStatus import GameStatus
@@ -135,10 +135,12 @@ async def manage(
         user.should_update_model = False
         return
 
-    # Will save game later to avoid doubling wager without actually starting game
+    # The wagers are taken and the game, with its opponent and the doubled wager, is saved in the
+    # same transaction: the game must never be left without what the players paid for it (the
+    # refund of a game that is ended later is worked out from its row)
     try:
         await collect_game_wagers_and_set_in_progress(
-            update, game, challenger=challenger, opponent=user, should_save_game=False
+            update, game, challenger=challenger, opponent=user
         )
     except BaseException:
         # The game could not be started and nothing was saved (a player has less bounty than the
@@ -151,4 +153,11 @@ async def manage(
         ).execute()
         raise
 
-    await dispatch_game(update, context, user, inbound_keyboard, game)
+    try:
+        await dispatch_game(update, context, user, inbound_keyboard, game)
+    except Exception:
+        # Both players have paid, but the game failed to start (the board of a guess game could
+        # not be built, for example) and nobody can play it: the stakes would be held until the
+        # inactive games are ended. Give them back now, and let the error go on as it did
+        await end_game_that_did_not_start(context, game, user)
+        raise

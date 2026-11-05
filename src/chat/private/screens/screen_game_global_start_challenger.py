@@ -1,4 +1,5 @@
 import datetime
+import logging
 
 from src.tg_compat import Update
 from src.tg_compat.ext import ContextTypes
@@ -46,11 +47,45 @@ async def manage(
         await dispatch_game(update, context, user, inbound_keyboard, game)
         return
 
+    # Atomically claim the start: only proceed if the challenge is still waiting for its opponent.
+    # The status was read above and is written below, and the Accept of another player in the
+    # group is handled in the same way (see screen_game_opponent_confirmation.py): if both pass
+    # their check before either has written the new status, both would take the challenger's
+    # wager and start the game, one of them as a game with an opponent and the other as a global
+    # challenge, saving over each other's game. The same goes for this very button pressed twice.
+    # Only the press that wins this claim goes on.
+    claimed_rows = (
+        Game.update(status=GameStatus.IN_PROGRESS)
+        .where((Game.id == game.id) & (Game.status == GameStatus.AWAITING_OPPONENT_CONFIRMATION))
+        .execute()
+    )
+    if claimed_rows == 0:
+        # Somebody else started it first, and what the game looks like now is theirs to show: the
+        # game in memory is the one from before that, and this user (read at the same time) must
+        # not be saved either, or the wager that was taken from them would be given back
+        logging.info(
+            f"Ignored the start of user {user.id} on game {game.id}: it was started by somebody"
+            f" else first"
+        )
+        user.should_update_model = False
+        return
+
     # Collect wagers
     game.global_challenger_start_date = datetime.datetime.now()
-    await collect_game_wagers_and_set_in_progress(
-        update, game, challenger=user, should_remove_bounty_opponent=False
-    )
+    try:
+        await collect_game_wagers_and_set_in_progress(
+            update, game, challenger=user, should_remove_bounty_opponent=False
+        )
+    except BaseException:
+        # The game could not be started and nothing was saved (the challenger has less bounty
+        # than the wager now, for example). Give the claim back, or the challenge would stay "in
+        # progress" with nobody having paid for it and ignore every press from now on
+        Game.update(status=GameStatus.AWAITING_OPPONENT_CONFIRMATION).where(
+            (Game.id == game.id)
+            & (Game.status == GameStatus.IN_PROGRESS)
+            & (Game.opponent.is_null())
+        ).execute()
+        raise
 
     # Edit group message to show that it's now a global challenge, best effort
     if game.group_chat is not None:

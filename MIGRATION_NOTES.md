@@ -2246,10 +2246,11 @@ admin's message has no sender, and the code also copes with the group itself bei
 whether the bot has the "delete messages" right in your group (without it the command stays and
 only the warning is deleted).
 
-## Round 3 (Nov 1 and Nov 3): Who's Who results, Admiral / Legendary Pirate privileges, two players pressing Accept together, Smile ability cap, two errors from the logs
+## Round 3 (Nov 1 to Nov 4): Who's Who results, Admiral / Legendary Pirate privileges, two players pressing Accept together, Smile ability cap, errors from the logs, Telegram's internal errors, the two rare game-start cases
 
-Eight things from your two messages, each reproduced first on the code of the previous delivery
-and then fixed. Two of them (1 and 2) turned out to be the same bug.
+Ten things from your messages, each reproduced first on the code of the previous delivery and then
+fixed. Two of them (1 and 2) turned out to be the same bug, and so did the two errors of Nov 3 and 4
+(7). The two rare cases left over from 4 are fixed in 8.
 
 ### 1. Who's Who global challenge: the winner got no "you won", the loser no "you lost"
 
@@ -2328,13 +2329,8 @@ that had just started.
   the claim; it now gives it back the same way when starting fails, so a player does not stay the
   opponent of a game he did not pay for.
 
-**Not changed.** The challenger's own "Start as global" button (in private) pressed at the very
-moment somebody presses Accept in the group has no claim of its own on the challenger's side. And an
-error *after* both wagers were taken, while the game is being started (sending the first board, for
-example), is reported as before and leaves the wagers held with the game started but not completely
-saved; before this change the same failure left the challenge open, where another Accept would have
-charged both players a second time. It is rare, and putting it right means refunding both players,
-which needs its own look.
+The two rare cases that were left out of this first fix (the challenger's own "Start as global"
+button pressed at the same moment, and an error after both wagers were taken) are fixed now, see 8.
 
 ### 5. Smiles: the ability is 1 to 99%, never 100
 
@@ -2362,6 +2358,81 @@ a flood wait (3 seconds here); the compat layer turns it into `RetryAfter`, and 
   the wait: no photo, and the poster is made with the default portrait, exactly as for a player who
   has no profile photo. A warning is logged, nothing is raised.
 
+### 7. `ValueError: Request was unsuccessful 6 time(s)` from the Reddit job and from `/reward` (Nov 3 and 4)
+
+**What was happening.** Both reports (`Error running job reddit_post_one_piece` and
+`Error handling update: /reward@one_piece_bountybot`) are the same failure. Telegram's own servers
+answered a request (sending a picture) with an internal error (`RPC_CALL_FAIL` and its relatives)
+six times in a row. Telethon retries those itself, 2 seconds apart, and then gives up with a bare
+`ValueError: Request was unsuccessful 6 time(s)` that doesn't say what Telegram answered. The compat
+layer made that a plain `TelegramError`, which the job runner and the update handler report as a bug
+of the bot. **That Telegram failed is not something the bot can cure, and the traces don't show why**
+(an outage, the picture, the data centre that holds it); what the bot did about it was wrong in
+several places:
+
+- `_errors.py`: Telegram's internal errors (Telethon's `ServerError` family, and the
+  `Request was unsuccessful` text) become a `NetworkError` whose text says "Telegram is having internal
+  issues" and names the error; Telegram's 503 `TimedOutError` becomes `TimedOut`. Every other error
+  keeps the class it had. The update handler already logs `NetworkError` / `TimedOut` as a warning
+  instead of reporting it, so the `/reward` report stops by itself.
+- `runtime.py`: the Telethon client is built with `raise_last_call_error=True`, so what is raised is
+  the last error Telegram sent (`RpcCallFailError`, `InterdcCallErrorError`...) instead of the bare
+  `ValueError`; next time the log says what Telegram answered.
+- `screen_daily_reward.py` (`/reward`): the reward is paid *before* the picture is sent, so a picture
+  that failed raised the error, nobody was told about the reward and the prize day offer after it
+  was skipped. Now, when the picture can't be sent for any Telegram reason (internal errors, a
+  timeout, a refused picture - the text of the reward with the shop and challenge lists is long), the
+  same text goes out as a plain message with the Delete button, its message id is kept as the reward's
+  and the prize day offer is made as always. If not even the text can be sent the error is raised as
+  before (a network error: a warning in the log).
+- `reddit_service.py` (the Reddit job): Telegram fetches the picture from Reddit by itself. Whether it
+  refuses it (`BadRequest`, as before) or fails trying (internal errors, a timeout), the bot now
+  downloads the picture itself, resizes it and uploads it (that fallback already existed for
+  `BadRequest`; the download now runs in a thread so the bot doesn't stand still while Reddit is slow,
+  and the temporary file is deleted also when the upload fails). A post that still can't be sent
+  because Telegram fails is **not** marked as seen, so a later run sends it, and the job goes on to the
+  next post; after 2 posts failing in one run (`MAX_TELEGRAM_FAILURES_PER_RUN`) the run stops. Nothing is
+  reported for that, a warning is logged. A post Telegram refuses twice is marked as seen and skipped
+  as before, and anything that isn't Telegram failing is still raised and reported.
+- `_jobqueue.py` and `runtime.py`: a job or a background task that fails with Telegram's internal errors
+  (`NetworkError`) is logged as a warning, not reported, like the updates. Timeouts (`TimedOut`) are
+  reported there exactly as before.
+
+If it keeps happening for the same picture, the warning now carries the name of Telegram's error, which
+is what to look at (`raise_last_call_error` also makes Telethon's own warning name the request).
+
+### 8. The two rare game-start cases left over from 4 (Nov 4)
+
+**8a. The challenger's "Start as global" pressed at the same moment as an Accept in the group, or
+pressed twice.** `screen_game_global_start_challenger.py` now claims the start with one conditional
+`UPDATE ... WHERE status = awaiting`, as the Accept does. The press that loses does nothing at all
+(it doesn't even save the player), so the challenger's wager is taken once and the game is started
+once. Before, both took the challenger's wager and saved their own version of the game over each
+other's: the game ended up with an opponent or as a global challenge depending on who saved last, and
+the stake of the player who accepted could be lost. If the start fails the claim is given back, as for
+the Accept.
+
+**8b. An error after both wagers were taken, while a game accepted in the group is starting.**
+- `collect_game_wagers_and_set_in_progress()` saves the players and the game in one transaction
+  (nothing waits inside it, so no other handler can run in the middle).
+- The group Accept now saves the game together with the wagers. Before, the opponent and the doubled
+  wager reached the database only when the first board was saved, so a game that failed before that
+  was left started with a single wager and no opponent in its row. The refund of a game that is ended
+  later is worked out from the row, so the timer of inactive games returned the challenger's stake
+  only and the stake of the player who had accepted was lost.
+- If starting the game fails before it has a board (the board of a guess game could not be built, the
+  first board of Rock Paper Scissors / Russian Roulette could not be made), nobody can play it and no
+  button leads to it (the challenge was accepted, so Accept does nothing). It is now ended at once as a
+  forced end and both players get their stake back, instead of waiting for the inactivity timer
+  (`end_game_that_did_not_start()` in `screen_game_manage.py`); the error then goes on as before. A game
+  that already has its board is kept whatever else failed: it can be played, and the inactivity timer
+  now returns both stakes if nobody does. The player who pressed Accept is not saved by the handler
+  afterwards, or the bounty from before the refund would have been written over it.
+- Not done on purpose: the challenger's start and the opponent's start of a global challenge (private
+  chat) are not ended like that. Their row is complete and the player can press Play again, which builds
+  the board. And the challenger's cooldown entry that the start counted stays counted when a start fails
+  and the stakes are refunded, as it does for a game ended by the inactivity timer.
+
 ### On verification
 
 New test files, all driven through the real functions and screens on in-memory SQLite with the
@@ -2372,11 +2443,18 @@ language); `test_round3_tax.py` 26 / 70; `test_round3_accept.py` 62 / 295 (two a
 time, a Cancel right after an accept, a failing start in the group and in private, a direct
 challenge); `test_round3_photo.py` 23 / 34 (through the real `send_bounty_poster()` and the real
 poster generator, with 3 s, lasting and 120 s flood waits, and a burst of players); `test_round3_smile.py`
-5 / 14 (30,000 Smiles: 275 had 100% before). The 15 older suites and `test_anon_admin.py` give the
-same results as before (the Crew disband suite was written for an older version of that function and
-fails on both). **What I could not verify:** the real Telegram (how long its flood waits really are,
-and whether 5 seconds is the right point to stop waiting - it is one constant), and what the live
-database holds (see the SQL in 5 for Smiles that already exist).
+5 / 14 (30,000 Smiles: 275 had 100% before); `test_round3_telegram_errors.py` 50 / 100 (every
+Telethon server error class, Telethon's own `_call` driven with a sender that always answers an internal
+error, `/reward` and the Reddit job with Telegram failing, the job runner and the background tasks);
+`test_round3_start_race.py` 28 / 61 (the challenger's start against an Accept in both orders, the
+button pressed twice, a game failing to start before and after its board, the refund after the failure
+and by the inactivity timer, a failing save). The 15 older suites, `test_anon_admin.py` and the tests of
+this round above give the same results as before (the Crew disband suite was written for an older
+version of that function and fails on both). **What I could not verify:** the real Telegram - why it
+answered with internal errors, whether the `/reward` picture or the Reddit ones are what it didn't like,
+how long its flood waits really are and whether 5 seconds is the right point to stop waiting (one
+constant) - only that the bot copes when it does; and what the live database holds (see the SQL in 5
+for Smiles that already exist).
 
 ## Known limitations / things worth knowing
 

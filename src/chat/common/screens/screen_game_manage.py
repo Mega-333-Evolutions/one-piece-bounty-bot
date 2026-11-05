@@ -1,6 +1,7 @@
 import logging
 from datetime import datetime
 
+from peewee import DoesNotExist
 from src.tg_compat import Update
 from src.tg_compat.ext import ContextTypes
 
@@ -25,6 +26,7 @@ from src.model.User import User
 from src.model.enums.GameStatus import GameStatus
 from src.model.enums.Screen import Screen
 from src.model.error.GroupChatError import GroupChatException, GroupChatError
+from src.model.game.GameOutcome import GameOutcome
 from src.model.game.GameType import GameType
 from src.model.pojo.Keyboard import Keyboard
 from src.service.date_service import (
@@ -33,6 +35,7 @@ from src.service.date_service import (
     get_elapsed_seconds,
 )
 from src.service.game_service import (
+    end_game,
     guess_game_countdown_to_start,
     validate_game,
     challenger_has_finished_or_opponent_timeout,
@@ -158,6 +161,52 @@ async def dispatch_game(
 
         case _:
             raise GroupChatException(GroupChatError.INVALID_GAME)
+
+
+async def end_game_that_did_not_start(
+    context: ContextTypes.DEFAULT_TYPE, game: Game, user: User
+) -> bool:
+    """
+    Ends a game whose start failed before it got a board, giving both players their stake back
+    right away. For when dispatch_game() fails right after the wagers were taken from both players
+    (the Accept of a challenge in a group): a game without a board can't be played, and no button
+    the players have leads to it any more (the challenge was accepted, so Accept does nothing), so
+    the stakes would be held until the timer that ends the inactive games gets to it.
+    A game that has its board is left alone, whatever else failed (a message that could not be
+    sent, ...): it can be played, and that timer ends it if nobody does.
+    :param context: The context
+    :param game: The game
+    :param user: The user whose button started the game. The handler must not save this user
+    after the stakes were given back, or it would write the bounty from before over the refund
+    :return: True if the game was ended
+    """
+
+    try:
+        # What is in the database is what counts: the board is saved as soon as it is built
+        latest_game: Game = Game.get_by_id(game.id)
+    except DoesNotExist:
+        return False
+
+    if latest_game.board is not None:
+        return False
+
+    # The handler saves this user when it is over (see manage_message.py), with the bounty it has
+    # in memory: from before the stake is given back by the end of the game below
+    user.should_update_model = False
+
+    try:
+        await end_game(game, GameOutcome.NONE, context, is_forced_end=True)
+    except Exception:  # noqa: the error that made the game fail is what has to reach the caller
+        logging.exception(f"Game {game.id} could not be ended after it failed to start")
+        return False
+
+    ended = game.get_status() is GameStatus.FORCED_END
+    if ended:
+        logging.warning(
+            f"Game {game.id} failed to start, before it had a board: ended it and gave the"
+            f" stakes back"
+        )
+    return ended
 
 
 def _is_board_missing(game: Game) -> bool:

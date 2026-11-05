@@ -16,6 +16,8 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.date import DateTrigger
 
+from .error import NetworkError
+
 logger = logging.getLogger(__name__)
 
 
@@ -23,6 +25,23 @@ def _as_timedelta(value) -> datetime.timedelta:
     if isinstance(value, datetime.timedelta):
         return value
     return datetime.timedelta(seconds=value)
+
+
+async def _handle_job_error(context, name: str, error: Exception) -> None:
+    """What happens to an exception that a job's callback raised: it is logged and reported to the
+    error chat, unless it is Telegram's own servers failing."""
+    if isinstance(error, NetworkError):
+        # Telegram answered the job's request with internal errors (see _errors.py). That goes
+        # away by itself and says nothing about a bug in the job, so, as manage_message.py does
+        # with the updates, it is logged but not reported: every job that sends something would
+        # otherwise send a report of its own while Telegram is having issues
+        logger.warning(f"Telegram failed while running job {name}: {error}", exc_info=error)
+        return
+
+    logger.error(f"Error running job {name}", exc_info=error)
+    await context.bot.report_error(
+        f"Error running job {name}:\n\n{''.join(traceback.format_exception(error))}"
+    )
 
 
 class Job:
@@ -51,9 +70,8 @@ class Job:
         context = application.new_context(job=self)
         try:
             await self._callback(context)
-        except Exception:
-            logger.exception(f"Error running job {self.name}")
-            await context.bot.report_error(f"Error running job {self.name}:\n\n{traceback.format_exc()}")
+        except Exception as e:
+            await _handle_job_error(context, self.name, e)
 
 
 class JobQueue:
@@ -76,10 +94,9 @@ class JobQueue:
             context = self._application.new_context(job=job_holder[0])
             try:
                 await callback(context)
-            except Exception:
+            except Exception as e:
                 name = job_holder[0].name if job_holder[0] else "<unknown>"
-                logger.exception(f"Error running job {name}")
-                await context.bot.report_error(f"Error running job {name}:\n\n{traceback.format_exc()}")
+                await _handle_job_error(context, name, e)
 
         return _runner
 

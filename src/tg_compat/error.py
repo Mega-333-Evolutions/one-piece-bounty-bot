@@ -59,6 +59,14 @@ class InvalidToken(TelegramError):
     """Mirrors telegram.error.InvalidToken."""
 
 
+# What _errors.py says when Telegram itself failed to do what it was asked: its servers answered
+# with internal errors (RPC_CALL_FAIL, INTERDC_x_CALL_ERROR, ...) every time Telethon tried, or
+# Telethon gave up on the request ("Request was unsuccessful 6 time(s)"). It is a NetworkError, as
+# python-telegram-bot raised for a Telegram that answers with a server error (Bad Gateway...):
+# something that goes away by itself and is not a bug of the bot, which manage_message.py logs as a
+# network error instead of reporting it
+TELEGRAM_INTERNAL_ERROR_MESSAGE = "Telegram is having internal issues"
+
 # Texts of the errors that _errors.py raises for "the bot can't (or no longer can) reach this
 # user / chat / message". Defined here so the code that recognises them - runtime.py's
 # background-task wrapper and chat/manage_message.py - matches on the very same strings that

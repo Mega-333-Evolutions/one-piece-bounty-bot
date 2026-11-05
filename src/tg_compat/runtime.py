@@ -21,6 +21,7 @@ from ._jobqueue import JobQueue
 from .error import (
     BadRequest,
     Forbidden,
+    NetworkError,
     BOT_BLOCKED_BY_USER_MESSAGE,
     BOT_TO_BOT_MARKER,
     CHAT_NOT_ACCESSIBLE_MESSAGE,
@@ -136,6 +137,14 @@ class Application:
             # so we don't want Telethon silently sleeping through flood
             # waits before that code ever sees them.
             flood_sleep_threshold=0,
+            # When Telegram answers a request with an internal error several
+            # times in a row (Telethon retries those on its own), Telethon
+            # gives up with a bare `ValueError: Request was unsuccessful 6
+            # time(s)` that says nothing about what Telegram answered. With
+            # this it raises the last error Telegram sent instead
+            # (RpcCallFailError, InterdcCallErrorError, ...), which
+            # translate_errors() turns into a NetworkError that says so.
+            raise_last_call_error=True,
         )
         self.bot_data = {}
         self._user_data_store = {}
@@ -185,6 +194,16 @@ class Application:
                     # is the one place that can handle all of them consistently, at info level
                     # instead of as a scary "unhandled exception" report.
                     logger.info(f"Background task {name or '<unnamed>'}: {reason}, skipping ({e})")
+                elif isinstance(e, NetworkError):
+                    # Telegram answered with internal errors (see _errors.py). It goes away by
+                    # itself and says nothing about a bug in the task, so it is logged but not
+                    # reported, as manage_message.py does with the updates: every task that
+                    # sends something would otherwise send a report of its own while Telegram
+                    # is having issues
+                    logger.warning(
+                        f"Background task {name or '<unnamed>'}: Telegram failed, giving up on"
+                        f" it ({e})"
+                    )
                 else:
                     logger.exception(f"Unhandled exception in background task {name or '<unnamed>'}")
                     await self.bot.report_error(

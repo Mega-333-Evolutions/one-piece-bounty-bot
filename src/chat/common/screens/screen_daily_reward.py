@@ -1,4 +1,7 @@
+import logging
+
 from src.tg_compat import Update, Message
+from src.tg_compat.error import TelegramError
 from src.tg_compat.ext import ContextTypes
 
 import constants as c
@@ -157,13 +160,24 @@ async def manage(
 
     ot_text += extra_text
 
-    message: Message = await full_media_send(
-        context,
-        saved_media_name=SavedMediaName.DAILY_REWARD,
-        update=update,
-        caption=ot_text,
-        add_delete_button=True,
-    )
+    # The reward is already paid at this point, so the announcement can't be allowed to get lost
+    # with its picture: if Telegram can't send the picture (it answered with internal errors, the
+    # connection to it failed, it refused the media...), the same text goes out as a plain message.
+    # Otherwise the reward was given without telling anybody, and the prize day offer below was
+    # never made
+    try:
+        message: Message = await full_media_send(
+            context,
+            saved_media_name=SavedMediaName.DAILY_REWARD,
+            update=update,
+            caption=ot_text,
+            add_delete_button=True,
+        )
+    except TelegramError as telegram_error:
+        logging.warning(
+            "Daily reward picture could not be sent, sending the text only: %s", telegram_error
+        )
+        message = await full_message_send(context, ot_text, update=update, add_delete_button=True)
 
     reward.message_id = message.id
     reward.save()

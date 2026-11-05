@@ -1440,15 +1440,20 @@ async def collect_game_wagers_and_set_in_progress(
 
     game.status = GameStatus.IN_PROGRESS
 
-    # Explicitly save the users so the new dates go to the database
-    if challenger is not None and should_save_challenger:
-        challenger.save()
-        
-    if opponent is not None and should_save_opponent:
-        opponent.save()
+    # Explicitly save the users so the new dates go to the database. The users and the game are
+    # saved together or not at all (nothing here waits for anything, so the transaction is over
+    # before any other handler can run): a failure in the middle - the database dropping the
+    # connection, for example - used to leave the wagers taken from the players with a game that
+    # knew nothing about them, whose stakes could then not be given back
+    with User._meta.database.atomic():
+        if challenger is not None and should_save_challenger:
+            challenger.save()
 
-    if should_save_game:
-        game.save()
+        if opponent is not None and should_save_opponent:
+            opponent.save()
+
+        if should_save_game:
+            game.save()
 
 
 def get_global_game_item_text_deeplink(game: Game, user: User) -> str:
