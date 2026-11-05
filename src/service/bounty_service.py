@@ -250,15 +250,20 @@ async def add_or_remove_bounty(
             user.pending_bounty -= amount if pending_belly_amount is None else pending_belly_amount
 
             if user.pending_bounty < 0 and previous_pending_bounty >= 0:
-                logging.error(
-                    f"⚠️ NEGATIVE PENDING BOUNTY CLAMPED ⚠️\n"
+                # More is being released than is held as pending bounty (it was given back before,
+                # by a bounty reset or by the owner, for example). It is not clamped to 0: the
+                # bounty is credited in full below, so the negative pending bounty is what keeps
+                # the user's bounty plus pending bounty from growing out of nothing, and the next
+                # bounty reset settles it. Logged once, when it first goes negative, so that the
+                # place it comes from can be found
+                logging.warning(
                     f"User {user.id} had pending bounty {previous_pending_bounty}, "
-                    f"attempted to remove {amount if pending_belly_amount is None else pending_belly_amount}, "
-                    f"result would be {user.pending_bounty}. Clamped to 0.\n"
+                    f"{amount if pending_belly_amount is None else pending_belly_amount} was "
+                    f"released from it, pending bounty is now {user.pending_bounty} (negative, "
+                    f"left as it is).\n"
                     f"Event: {update.to_dict() if update is not None else 'None'}\n"
-                    f"Stack trace:\n{traceback.format_stack()}"
+                    f"Stack trace:\n{''.join(traceback.format_stack())}"
                 )
-                user.pending_bounty = 0
 
             if should_save:
                 user.save()

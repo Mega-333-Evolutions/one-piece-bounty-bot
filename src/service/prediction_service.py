@@ -863,7 +863,7 @@ async def delete_prediction_option_user(
 
     # Return wager - only affect pending bounty if result hasn't been set yet.
     # If result is already set, set_results already cleared the pending bounty for this bet,
-    # so we must not deduct it again (would go negative and get clamped to 0).
+    # so we must not deduct it again (the pending bounty would go negative).
     await add_or_remove_bounty(
         user,
         prediction_option_user.wager,

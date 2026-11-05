@@ -1502,11 +1502,11 @@ which.)
   nothing about the chat, user or message involved. It now prints `Update({...})` with the
   chat, the sender and the text (or the callback data / the inline query), and can't raise.
 - It also had no `to_dict()`, which `bounty_service.add_or_remove_bounty` calls when it logs a
-  player who doesn't have enough bounty, and when it clamps a pending bounty that would go
-  negative. Whenever the caller passed the update (gift, loan, Devil Fruit purchase, Doc Q,
-  fights and plunders, wager games, Impel Down bail), that line raised `AttributeError:
-  'Update' object has no attribute 'to_dict'` instead of the "not enough bounty" answer, and
-  the player got an error report instead of an answer. Rare - most of those flows check the
+  player who doesn't have enough bounty, and when a pending bounty goes negative (it was clamped
+  to 0 there until Nov 5, see Round 3, 9). Whenever the caller passed the update (gift, loan,
+  Devil Fruit purchase, Doc Q, fights and plunders, wager games, Impel Down bail), that line raised
+  `AttributeError: 'Update' object has no attribute 'to_dict'` instead of the "not enough bounty"
+  answer, and the player got an error report instead of an answer. Rare - most of those flows check the
   balance first - but the wrong failure. `to_dict()` now exists on `Update` and its parts
   (`Message`, `CallbackQuery`, `InlineQuery`, `TelegramUser`, `Chat`), as in PTB: only the
   fields that are set, media only marked as present.
@@ -1518,8 +1518,8 @@ checked: a normal leave still leaves once, the updates chat is still never left,
 wait / timeout / 403 / an unrelated `BadRequest` / any other error while leaving all still
 surface and are reported. The real `add_or_remove_bounty` against an in-memory database
 with the project's real tables, with an update passed: not enough bounty, and a pending
-bounty clamped to 0 - `AttributeError` before, the "not enough bounty" answer
-(`CommonChatException`) and a clean clamp now. **What I could not verify:** a real Telegram
+bounty clamped to 0 (it isn't any more, see Round 3, 9) - `AttributeError` before, the "not enough
+bounty" answer (`CommonChatException`) and a clean clamp then. **What I could not verify:** a real Telegram
 server (the error object is built the way Telethon builds it), and why the bot was already
 out of that channel.
 
@@ -2246,11 +2246,12 @@ admin's message has no sender, and the code also copes with the group itself bei
 whether the bot has the "delete messages" right in your group (without it the command stays and
 only the warning is deleted).
 
-## Round 3 (Nov 1 to Nov 4): Who's Who results, Admiral / Legendary Pirate privileges, two players pressing Accept together, Smile ability cap, errors from the logs, Telegram's internal errors, the two rare game-start cases
+## Round 3 (Nov 1 to Nov 5): Who's Who results, Admiral / Legendary Pirate privileges, two players pressing Accept together, Smile ability cap, errors from the logs, Telegram's internal errors, the two rare game-start cases, a negative pending bounty is no longer clamped to 0
 
-Ten things from your messages, each reproduced first on the code of the previous delivery and then
+Eleven things from your messages, each reproduced first on the code of the previous delivery and then
 fixed. Two of them (1 and 2) turned out to be the same bug, and so did the two errors of Nov 3 and 4
-(7). The two rare cases left over from 4 are fixed in 8.
+(7). The two rare cases left over from 4 are fixed in 8, and the pending bounty that is no longer
+clamped to 0 is 9.
 
 ### 1. Who's Who global challenge: the winner got no "you won", the loser no "you lost"
 
@@ -2433,6 +2434,38 @@ the Accept.
   the board. And the challenger's cooldown entry that the start counted stays counted when a start fails
   and the stakes are refunded, as it does for a game ended by the inactivity timer.
 
+### 9. A negative pending bounty is no longer clamped to 0 (Nov 5)
+
+"I want the bot to stop clamping negative pending bounty to 0." There was one clamp, in
+`add_or_remove_bounty()` (`bounty_service.py`), and it is gone. Releasing a wager from the pending
+bounty (a game that ends, a prediction that is settled, a bet that is refunded) that would take it
+below 0 used to set it to 0, while the bounty was credited in full. A player whose pending bounty had
+already been given back - by a bounty reset, by the owner's revert, by an old bug that left a stake out
+- was therefore paid the stake a second time and nothing ever took it back: bounty plus pending
+bounty grew by the missing amount. (The clamp also only acted the first time the pending bounty crossed
+0; from then on every further release took it lower anyway.)
+
+The pending bounty is now left as it is. Example: 10M bounty and 2M pending, a game ends and 5M is
+released: 15M bounty and -3M pending (it used to be 0), so bounty plus pending bounty is 12M, as before
+the release. The next bounty reset settles it like any other pending bounty (`bounty + pending`, then
+the usual halving; anything below 0 ends as 0, so a reset never leaves a negative bounty - checked with
+the real `reset_bounty()`).
+
+The log changed with it: when the pending bounty first goes negative there is now one warning (it was
+an error that said "CLAMPED") with the user, the amounts, the event and the stack, to find where the
+extra release comes from. It is not repeated for the releases after that. The stack is also printed
+as lines now, not as a Python list.
+
+What it looks like: `/status` shows the pending bounty line whenever it is not 0, so a negative one
+reads `Pending bounty: ฿-3,000,000`. The bounty-gain limit (`User.has_bounty_gain_limitations()` and the
+same condition in SQL) adds the pending bounty to the bounty, so a negative one counts against the player
+there. The other places that read the pending bounty (the owner's revert commands and the reset) already
+worked with signed values. One thing to know: the owner's revert of a negative pending bounty takes it off
+the bounty, and if the bounty is smaller than that, the bounty is negative until the next reset turns it
+into 0.
+
+Not changed: what is already in the database. Nothing is recalculated.
+
 ### On verification
 
 New test files, all driven through the real functions and screens on in-memory SQLite with the
@@ -2448,13 +2481,17 @@ Telethon server error class, Telethon's own `_call` driven with a sender that al
 error, `/reward` and the Reddit job with Telegram failing, the job runner and the background tasks);
 `test_round3_start_race.py` 28 / 61 (the challenger's start against an Accept in both orders, the
 button pressed twice, a game failing to start before and after its board, the refund after the failure
-and by the inactivity timer, a failing save). The 15 older suites, `test_anon_admin.py` and the tests of
-this round above give the same results as before (the Crew disband suite was written for an older
-version of that function and fails on both). **What I could not verify:** the real Telegram - why it
+and by the inactivity timer, a failing save); `test_round3_pending_negative.py` 10 / 31 (the real
+`add_or_remove_bounty`, two real games ended by `end_game`, the real `reset_bounty`). The 15 older
+suites, `test_anon_admin.py` and the tests of this round above give the same results as before (the
+Crew disband suite was written for an older version of that function and fails on both; one check of
+`test_update_describe.py` that expected the clamp now expects the negative value). **What I could not
+verify:** the real Telegram - why it
 answered with internal errors, whether the `/reward` picture or the Reddit ones are what it didn't like,
 how long its flood waits really are and whether 5 seconds is the right point to stop waiting (one
 constant) - only that the bot copes when it does; and what the live database holds (see the SQL in 5
-for Smiles that already exist).
+for Smiles that already exist; for 9, which players have a pending bounty that is out of step and how
+often a release is bigger than what is held - the new warning in the log will show it).
 
 ## Known limitations / things worth knowing
 
