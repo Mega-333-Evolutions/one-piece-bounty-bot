@@ -1,7 +1,9 @@
 import asyncio
+import functools
 import logging
 import os
 import re
+import threading
 import unicodedata
 
 from confusable_homoglyphs import confusables
@@ -58,8 +60,19 @@ NATIVE_SCRIPT_FONT_MAP = {
 # Used for the Latin/neutral portions of a name that also contains native-script text (see
 # _build_mixed_script_name_component), so that e.g. "apple سیب FARZIN" shows "apple"/"FARZIN" as
 # actual Latin glyphs instead of unsupported-glyph placeholder boxes (NotoSansArabic/Devanagari
-# don't cover Latin). Matches the poster library's own name font
+# don't cover Latin). Matches the poster library's own name font. It doesn't have every
+# character: one it has no glyph for is drawn as a blank gap (see _segment_by_script)
 LATIN_NAME_FONT_PATH = os.path.join(c.ASSETS_FONTS_DIR, "Blogger_Sans-Bold.otf")
+
+# Whether a font has a glyph for a character is found out by drawing the character with it (see
+# _font_can_draw), on a small canvas of this size, and comparing it with what the font draws for a
+# character that no font has: for that, the Latin font above draws nothing at all, and the native
+# script fonts draw an empty box
+_GLYPH_PROBE_FONT_SIZE = 48
+_GLYPH_PROBE_CANVAS_SIZE = (240, 240)
+_GLYPH_PROBE_ORIGIN = (80, 160)
+_MISSING_GLYPH_PROBE_CHAR = "\U0010ffff"
+_glyph_probe_lock = threading.Lock()
 
 
 # "Fancy font" generators (common for Discord/Telegram display names) often reuse characters
@@ -108,12 +121,159 @@ def get_native_script(name: str) -> str | None:
     return None
 
 
+def _load_name_font(script: str | None, size: int) -> tuple[ImageFont.FreeTypeFont, str]:
+    """
+    Loads the font a script's text is drawn with on the poster
+    :param script: A key of NATIVE_SCRIPT_FONT_MAP, or None for Latin/neutral text
+    (LATIN_NAME_FONT_PATH)
+    :param size: The font size
+    :return: The font, and the direction its text is written in
+    """
+
+    if script is None:
+        return ImageFont.truetype(LATIN_NAME_FONT_PATH, size), "ltr"
+
+    font_path, direction = NATIVE_SCRIPT_FONT_MAP[script]
+    return (
+        ImageFont.truetype(font_path, size, layout_engine=ImageFont.Layout.RAQM),
+        direction,
+    )
+
+
+@functools.lru_cache(maxsize=None)
+def _get_glyph_probe_font(script: str | None) -> ImageFont.FreeTypeFont:
+    """
+    Gets the font used to find out which characters the font of a script has a glyph for
+    :param script: A key of NATIVE_SCRIPT_FONT_MAP, or None for the Latin font
+    :return: The font
+    """
+
+    return _load_name_font(script, _GLYPH_PROBE_FONT_SIZE)[0]
+
+
+def _draw_glyph_probe(script: str | None, char: str) -> Image.Image:
+    """
+    Draws a character with the font of a script, on its own
+    :param script: A key of NATIVE_SCRIPT_FONT_MAP, or None for the Latin font
+    :param char: The character
+    :return: The image it was drawn on
+    """
+
+    probe = Image.new("L", _GLYPH_PROBE_CANVAS_SIZE)
+    ImageDraw.Draw(probe).text(
+        _GLYPH_PROBE_ORIGIN, char, font=_get_glyph_probe_font(script), fill=255, anchor="ls"
+    )
+    return probe
+
+
+@functools.lru_cache(maxsize=None)
+def _get_missing_glyph_pixels(script: str | None) -> bytes:
+    """
+    Gets what the font of a script draws for a character it has no glyph for
+    :param script: A key of NATIVE_SCRIPT_FONT_MAP, or None for the Latin font
+    :return: The pixels of the probe image (blank, or an empty box, depending on the font)
+    """
+
+    return _draw_glyph_probe(script, _MISSING_GLYPH_PROBE_CHAR).tobytes()
+
+
+@functools.lru_cache(maxsize=4096)
+def _font_can_draw(script: str | None, char: str) -> bool:
+    """
+    Whether the font of a script has a glyph for a character. A character it doesn't have isn't
+    an error for the font: it draws nothing for it (the Latin font) or an empty box (the native
+    script fonts), but still leaves the room of a character for it, so the name shows a blank gap
+    :param script: A key of NATIVE_SCRIPT_FONT_MAP, or None for the Latin font
+    :param char: A single character
+    :return: True if the font draws the character
+    """
+
+    # The font objects are shared by the threads the posters are generated in
+    with _glyph_probe_lock:
+        probe = _draw_glyph_probe(script, char)
+        return probe.getbbox() is not None and probe.tobytes() != _get_missing_glyph_pixels(script)
+
+
+def _get_native_script_with_glyph(char: str) -> str | None:
+    """
+    Looks for the native script a character that isn't a letter (a digit, a punctuation mark ...)
+    belongs to, by its Unicode name (e.g. "ARABIC-INDIC DIGIT EIGHT" -> "ARABIC", "DEVANAGARI
+    DANDA" -> "DEVANAGARI"), among the ones whose font has a glyph for it
+    :param char: A single character
+    :return: The script (a key of NATIVE_SCRIPT_FONT_MAP), or None if there is none
+    """
+
+    try:
+        # The Persian digits are named "EXTENDED ARABIC-INDIC DIGIT ..."
+        char_name = unicodedata.name(char).removeprefix("EXTENDED ")
+    except ValueError:
+        return None
+
+    for script in NATIVE_SCRIPT_FONT_MAP:
+        if char_name.startswith(script) and _font_can_draw(script, char):
+            return script
+
+    return None
+
+
+def _get_drawable_replacement(char: str) -> str:
+    """
+    Gets what to draw on the poster instead of a character the Latin font has no glyph for: the
+    Latin letters/digits the name would get on any other poster (see get_bounty_poster_name, e.g.
+    the small capital "ɴ" -> "N"), or nothing at all if there are none (decorative symbols, emoji
+    ...)
+    :param char: A single character
+    :return: The replacement, which can be empty
+    """
+
+    replacement = get_bounty_poster_name(char)
+
+    # unidecode turns some of the small capitals into a lowercase letter ("ɴ" -> "n"), but a small
+    # capital is meant to look like a capital letter. (On the other posters it makes no difference,
+    # as the poster library writes the whole name in capital letters)
+    if "SMALL CAPITAL" in unicodedata.name(char, ""):
+        replacement = replacement.upper()
+
+    return replacement
+
+
+def _remove_extra_spaces(runs: list[tuple[str, str | None]]) -> list[tuple[str, str | None]]:
+    """
+    Tidies the spaces of a name after characters were ignored (see _segment_by_script): the ones
+    that ended up next to each other ("سیب ★ FARZIN" has two between the words once the star is
+    gone) are made one, and the ones left at the start or the end of the name are removed, the same
+    as for the names of the other posters (see get_bounty_poster_name)
+    :param runs: The runs of the name, as _segment_by_script makes them
+    :return: The runs, without the runs that were only spaces
+    """
+
+    tidied = [
+        (re.sub(r"\s+", " ", run_text) if script is None else run_text, script)
+        for run_text, script in runs
+    ]
+
+    if tidied and tidied[0][1] is None:
+        tidied[0] = (tidied[0][0].lstrip(), None)
+
+    if tidied and tidied[-1][1] is None:
+        tidied[-1] = (tidied[-1][0].rstrip(), None)
+
+    return [(run_text, script) for run_text, script in tidied if run_text]
+
+
 def _segment_by_script(text: str) -> list[tuple[str, str | None]]:
     """
     Segments text into contiguous runs of a single native script (see NATIVE_SCRIPT_FONT_MAP) or
     plain Latin/neutral characters (Latin letters, digits, punctuation, spaces), so a name that
     mixes scripts (e.g. "apple سیب FARZIN") can have each part rendered with a font that actually
     supports it, instead of forcing the whole string through a single script's font.
+
+    A character that the font it would be drawn with has no glyph for isn't left in the text,
+    where it would be drawn as a blank gap (e.g. the small capitals of "Mɪɴᴀᴛᴏ" in a name that also
+    has Arabic decorations show only the "M"): it is drawn with the font of the native script it
+    belongs to when that has it (the Arabic-Indic digits, for instance), otherwise it is replaced
+    by what it would be on any other poster (see _get_drawable_replacement: "ɪɴᴀᴛᴏ" -> "INATO"),
+    or ignored if that is nothing
     :param text: The text to segment
     :return: A list of (segment_text, script) tuples in original order. script is a key of
     NATIVE_SCRIPT_FONT_MAP for a native-script run, or None for a Latin/neutral run
@@ -122,8 +282,10 @@ def _segment_by_script(text: str) -> list[tuple[str, str | None]]:
     runs: list[tuple[str, str | None]] = []
     current_text = ""
     current_script: str | None = None
+    ignored_chars = False
 
     for char in text:
+        char_text = char
         char_script = None
 
         if unicodedata.category(char).startswith("M"):
@@ -133,6 +295,16 @@ def _segment_by_script(text: str) -> list[tuple[str, str | None]]:
             # font (which doesn't have it), breaking the conjunct/shaping and showing a
             # placeholder box instead
             char_script = current_script
+
+            if char_script is None and not _font_can_draw(None, char):
+                # A mark of Latin/neutral text that the Latin font has no glyph for (like the
+                # Ethiopic and Hebrew ones that fancy names are decorated with). Nothing would
+                # be drawn for it. Most of them take no room, but the spacing and enclosing ones
+                # would leave a blank gap, as any other character the font doesn't have does
+                if unicodedata.category(char) in ("Mc", "Me"):
+                    ignored_chars = True
+
+                continue
         elif char.isalpha():
             try:
                 char_name = unicodedata.name(char)
@@ -144,16 +316,37 @@ def _segment_by_script(text: str) -> list[tuple[str, str | None]]:
                     char_script = script
                     break
 
+            if char_script is None and not _font_can_draw(None, char):
+                # A letter of another script, or a "fancy font" one like the small capitals
+                char_text = _get_drawable_replacement(char)
+        elif (
+            not char.isspace()
+            and unicodedata.category(char) not in ("Cc", "Cf")
+            and not _font_can_draw(None, char)
+        ):
+            # A digit, a punctuation mark or a symbol
+            char_script = _get_native_script_with_glyph(char)
+            if char_script is None:
+                char_text = _get_drawable_replacement(char)
+
+        if not char_text:
+            ignored_chars = True
+            continue
+
         if char_script == current_script:
-            current_text += char
+            current_text += char_text
         else:
             if current_text:
                 runs.append((current_text, current_script))
-            current_text = char
+            current_text = char_text
             current_script = char_script
 
     if current_text:
         runs.append((current_text, current_script))
+
+    # Names where nothing was ignored are left exactly as they are
+    if ignored_chars:
+        runs = _remove_extra_spaces(runs)
 
     return runs
 
@@ -169,6 +362,9 @@ def _build_mixed_script_name_component(text: str) -> Image.Image:
 
     Uses a texture + alpha mask, auto-scaling if the combined text is too wide, but draws each
     script run with its own font/direction instead of a single one for the whole string.
+
+    Characters that the font they'd be drawn with has no glyph for aren't drawn as blank gaps:
+    they're replaced, or ignored (see _segment_by_script)
     :param text: The full name text, in its original (possibly mixed) script
     :return: The name component image, ready to paste over the poster at
     (0, BOUNTY_POSTER_NAME_START_Y)
@@ -178,22 +374,8 @@ def _build_mixed_script_name_component(text: str) -> Image.Image:
 
     fonts_and_directions: dict[str | None, tuple[ImageFont.FreeTypeFont, str]] = {}
     for _, script in runs:
-        if script in fonts_and_directions:
-            continue
-
-        if script is None:
-            fonts_and_directions[script] = (
-                ImageFont.truetype(LATIN_NAME_FONT_PATH, BOUNTY_POSTER_NAME_FONT_SIZE),
-                "ltr",
-            )
-        else:
-            font_path, direction = NATIVE_SCRIPT_FONT_MAP[script]
-            fonts_and_directions[script] = (
-                ImageFont.truetype(
-                    font_path, BOUNTY_POSTER_NAME_FONT_SIZE, layout_engine=ImageFont.Layout.RAQM
-                ),
-                direction,
-            )
+        if script not in fonts_and_directions:
+            fonts_and_directions[script] = _load_name_font(script, BOUNTY_POSTER_NAME_FONT_SIZE)
 
     texture_background = Image.open(BOUNTY_POSTER_NAME_TEXTURE_PATH)
     texture_background_w, texture_background_h = texture_background.size

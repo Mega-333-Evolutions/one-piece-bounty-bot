@@ -2246,12 +2246,13 @@ admin's message has no sender, and the code also copes with the group itself bei
 whether the bot has the "delete messages" right in your group (without it the command stays and
 only the warning is deleted).
 
-## Round 3 (Nov 1 to Nov 5): Who's Who results, Admiral / Legendary Pirate privileges, two players pressing Accept together, Smile ability cap, errors from the logs, Telegram's internal errors, the two rare game-start cases, a negative pending bounty is no longer clamped to 0, symbols in the poster name are ignored
+## Round 3 (Nov 1 to Nov 6): Who's Who results, Admiral / Legendary Pirate privileges, two players pressing Accept together, Smile ability cap, errors from the logs, Telegram's internal errors, the two rare game-start cases, a negative pending bounty is no longer clamped to 0, symbols in the poster name are ignored, a poster name with Arabic decorations showed only its first letter
 
-Twelve things from your messages, each reproduced first on the code of the previous delivery and then
+Thirteen things from your messages, each reproduced first on the code of the previous delivery and then
 fixed. Two of them (1 and 2) turned out to be the same bug, and so did the two errors of Nov 3 and 4
 (7). The two rare cases left over from 4 are fixed in 8, the pending bounty that is no longer
-clamped to 0 is 9, and the poster name without spelled-out symbols is 10.
+clamped to 0 is 9, the poster name without spelled-out symbols is 10, and the poster name that showed
+only its first letter is 11.
 
 ### 1. Who's Who global challenge: the winner got no "you won", the loser no "you lost"
 
@@ -2496,7 +2497,66 @@ ZORO•SPADES•SANJI•HEARTS•NAMI.
 Not changed: names in Arabic, Persian, Hindi and the like are drawn as they are with their own fonts, and
 a symbol in them is drawn if the font has it (a heart is drawn as a heart). The name plates of the posters
 of such names that I rendered come out pixel for pixel as before. A symbol the font does not have is a blank
-gap there, not a word.
+gap there, not a word (that changed the next day, see 11: it is ignored there too).
+
+### 11. A poster name with Arabic decorations showed only its first letter: "Mɪ፝֟ɴᴀᴛᴏـــــــــﮩ٨" (Nov 6)
+
+"Why it shows only M, where is inato?" The name, as you sent it as text: `M`, a small capital `ɪ`, two
+marks (one Ethiopic, one Hebrew), small capitals `ɴ ᴀ ᴛ ᴏ`, nine Arabic tatweels (the long bar), an Arabic
+heh (`ﮩ`) and the Arabic-Indic digit eight (`٨`), 19 characters. Reproduced with the real
+`get_bounty_poster()` on the previous delivery: the poster shows the M, a blank gap as wide as five
+letters, and the bar.
+
+Cause: the tatweels and the heh are Arabic-script characters, so `get_native_script()` says the name is
+Arabic and the poster draws it with its own native-script code instead of the poster library's font (which
+only has Latin). There every run of one script is drawn with the font of that script, and everything else -
+Latin letters, digits, punctuation, spaces - with the Latin name font (`Blogger_Sans-Bold.otf`). That font
+has all of ASCII, the accented letters and the hearts, but no glyph for the small capitals. A font does not
+fail for a character it doesn't have: it draws nothing and still leaves the room of one (114 px at the size
+of the name on the poster; the Arabic and Devanagari fonts draw an empty box). Five missing letters, then,
+and the bar. Without any Arabic or Devanagari character a name never goes through this code: `Mɪɴᴀᴛᴏ` alone
+was always MINATO. The same blank gaps were there for anything else the Latin font doesn't have in such a
+name: the Arabic-Indic digits and the Arabic punctuation (`علی ٢٠٢٤` showed `علی`), the Devanagari digits and
+danda, symbols like ★ ✿, emoji, Chinese letters, the small capitals after a real Arabic word (`سیب ᴘɪʀᴀᴛᴇ`).
+
+Now `_segment_by_script()` looks at every character before it is drawn, against the font it would be drawn
+with (`_font_can_draw()`: it draws the character small and compares it with what the font draws for a
+character no font has; the answer is kept, so a new character costs about 0.2 ms once):
+
+- A letter the Latin font doesn't have is written the way the other posters write it
+  (`get_bounty_poster_name()`): `ɪɴᴀᴛᴏ` is `INATO`, `ᴘɪʀᴀᴛᴇ` is `PIRATE`, `你好` is `NiHao`. A small capital is
+  always a capital letter (`unidecode` makes some of them lowercase, `ɴ` -> `n`, and the name would read
+  `MInATO`); everything else keeps the case `unidecode` gives it.
+- A digit, a punctuation mark or a symbol the Latin font doesn't have is drawn with the font of its own script
+  when its Unicode name says it belongs to one and that font has it: the Arabic-Indic and Persian digits, the
+  Arabic comma and question mark, the Devanagari digits and danda. Otherwise it is ignored (★ ✿ emoji), or
+  written the way the other posters write it (`①` is `1`).
+- A mark the Latin font doesn't have (the Ethiopic and Hebrew ones of your name) is dropped. Most take no
+  room, but the spacing and enclosing ones took the width of a letter.
+- When something was ignored, the spaces that end up next to each other become one and the ones left at the
+  ends of the name are removed, as on the other posters (`سیب ★ FARZIN` has one space between the words, not
+  two). A name where nothing was ignored is left exactly as it is.
+
+The reported name now reads `MINATO`, then the Arabic part: the digit `٨`, the heh and the bar, in the order
+Telegram shows them (that part is read right to left, so the digit is next to the O and the bar is at the right
+end). The poster is pixel for pixel the poster of `MINATOـــــــــﮩ٨` (the same name with plain capitals), and
+reading the name plate back with tesseract says MINATO (it read nothing sensible before).
+
+If looking at a font ever fails (the file can't be opened), the poster is still made: the existing fallback
+for a native-script name that can't be drawn gives it the Latin name of the other posters instead.
+
+Not changed:
+- Which names are drawn this way. A name with only Arabic decorations among Latin letters (tatweels, a heh)
+  is still drawn natively, so the decoration shows on the poster as it does in Telegram. The alternative is to
+  not count a tatweel or a presentation-form letter as Arabic text, which would put such a name through the
+  other posters' code: MINATO8 in the poster's serif letters, with no bar. That is a rule in
+  `get_native_script()`; say if you would rather have it.
+- Whatever was drawn before. The names I compared pixel for pixel with the previous delivery (135: real
+  Arabic, Persian and Hindi names, mixed ones, names with hearts, accents, zero width non-joiners, vowel signs
+  and diacritics) come out identical, and so does every character of the first three Unicode planes that the
+  Latin font has, or that is a space, a control, a zero width character or a letter of a native script.
+- The Latin letters of such a name are drawn in the sans-serif Blogger Sans, not in the serif of the other
+  posters (that is how the native-script code was written).
 
 ### On verification
 
@@ -2516,7 +2576,14 @@ button pressed twice, a game failing to start before and after its board, the re
 and by the inactivity timer, a failing save); `test_round3_pending_negative.py` 10 / 31 (the real
 `add_or_remove_bounty`, two real games ended by `end_game`, the real `reset_bounty`);
 `test_round3_poster_name.py` 20 / 37 (through the real `get_bounty_poster()` and poster generator, then
-every character of the first three Unicode planes against the previous delivery, and the `•` unchanged).
+every character of the first three Unicode planes against the previous delivery, and the `•` unchanged);
+`test_round3_poster_native_gaps.py` 25 / 43 (through the real `get_bounty_poster()` and poster generator
+with the name you sent: its poster is pixel for pixel the poster of the same name with plain capitals, and
+tesseract reads MINATO on it; what is drawn with which font for 24 names; every character of the first
+three Unicode planes in the middle of a Latin word and at the end of an Arabic and of a Devanagari name
+(below U+3000 all of them, above it one in 13), against the previous delivery and against the font
+files; 135 native-script names compared pixel for pixel with the previous delivery; 240 names drawn on 8
+threads at once; the font check failing).
 The 15 older suites, `test_anon_admin.py` and the tests of this round above give the same results as before (the
 Crew disband suite was written for an older version of that function and fails on both; one check of
 `test_update_describe.py` that expected the clamp now expects the negative value). **What I could not
@@ -2526,7 +2593,8 @@ how long its flood waits really are and whether 5 seconds is the right point to 
 constant) - only that the bot copes when it does; and what the live database holds (see the SQL in 5
 for Smiles that already exist; for 9, which players have a pending bounty that is out of step and how
 often a release is bigger than what is held - the new warning in the log will show it; for 10, the
-exact decoration characters of the name in your screenshot).
+exact decoration characters of the name in your screenshot; for 11, that the name in your Telegram
+profile is exactly the text you sent me - I rendered it from that text).
 
 ## Known limitations / things worth knowing
 
