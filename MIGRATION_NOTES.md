@@ -2246,12 +2246,12 @@ admin's message has no sender, and the code also copes with the group itself bei
 whether the bot has the "delete messages" right in your group (without it the command stays and
 only the warning is deleted).
 
-## Round 3 (Nov 1 to Nov 5): Who's Who results, Admiral / Legendary Pirate privileges, two players pressing Accept together, Smile ability cap, errors from the logs, Telegram's internal errors, the two rare game-start cases, a negative pending bounty is no longer clamped to 0
+## Round 3 (Nov 1 to Nov 5): Who's Who results, Admiral / Legendary Pirate privileges, two players pressing Accept together, Smile ability cap, errors from the logs, Telegram's internal errors, the two rare game-start cases, a negative pending bounty is no longer clamped to 0, symbols in the poster name are ignored
 
-Eleven things from your messages, each reproduced first on the code of the previous delivery and then
+Twelve things from your messages, each reproduced first on the code of the previous delivery and then
 fixed. Two of them (1 and 2) turned out to be the same bug, and so did the two errors of Nov 3 and 4
-(7). The two rare cases left over from 4 are fixed in 8, and the pending bounty that is no longer
-clamped to 0 is 9.
+(7). The two rare cases left over from 4 are fixed in 8, the pending bounty that is no longer
+clamped to 0 is 9, and the poster name without spelled-out symbols is 10.
 
 ### 1. Who's Who global challenge: the winner got no "you won", the loser no "you lost"
 
@@ -2466,6 +2466,38 @@ into 0.
 
 Not changed: what is already in the database. Nothing is recalculated.
 
+### 10. Symbols in the bounty poster name are ignored, not spelled out (Nov 5)
+
+"Why the hell bot says heart in bounty poster name - if it can't print a special character then just
+ignore it." A player whose name was a "Shakky" with hearts around it got a poster that said
+HEARTSSHAKKYHEARTS (reproduced with the real `get_bounty_poster()`; the exact decoration characters
+can't be read off the screenshot, so I used stand-ins that give the same text on the previous delivery).
+
+Cause: `get_bounty_poster_name()` (`bounty_poster_service.py`) turns the characters the poster font can't
+print into Latin letters with `unidecode`, and keeps the result if it is one clean word. But a symbol is
+not transliterated by `unidecode`, it is NAMED: `♡` and `♥` are "hearts", `♠` "spades", `♣` "clubs", `♦`
+"diamonds", `€` "EUR", `£` "PS", `°` "deg", `§` "SS", `℃` "degC" ... - each one clean word, so they passed
+and were printed as part of the name.
+
+Now a symbol or a punctuation mark (Unicode category S or P) is never turned into a word: it is ignored,
+like every other character the poster can't print. 381 characters changed (checked over every character
+of the first three Unicode planes: nothing else changed - not the letters, digits and marks of any
+script, and not the symbols that stand for ONE letter or digit, which were kept before: `Ⓐ` -> A, `₦` -> N,
+`×` -> x, `①` -> 1). A name made only of such symbols is the fallback name UNKNOWN, as a name made only of
+emoji already was.
+
+The `•` between the words of a long name is not touched, as you asked. It does not come from the bot but
+from the poster library (`one-piece-wanted-poster`), which replaces the spaces of a name of 14
+characters or more, or with a "D.", by a bullet: `MONKEY•D•LUFFY`. (It is a bullet, drawn as a round dot
+in the middle of the line, which is why it can look like a full stop.) Removing a symbol can change
+whether a name reaches the 14 characters: `Zoro ♠ Sanji ♥ Nami` is now ZORO•SANJI•NAMI, where it was
+ZORO•SPADES•SANJI•HEARTS•NAMI.
+
+Not changed: names in Arabic, Persian, Hindi and the like are drawn as they are with their own fonts, and
+a symbol in them is drawn if the font has it (a heart is drawn as a heart). The name plates of the posters
+of such names that I rendered come out pixel for pixel as before. A symbol the font does not have is a blank
+gap there, not a word.
+
 ### On verification
 
 New test files, all driven through the real functions and screens on in-memory SQLite with the
@@ -2482,8 +2514,10 @@ error, `/reward` and the Reddit job with Telegram failing, the job runner and th
 `test_round3_start_race.py` 28 / 61 (the challenger's start against an Accept in both orders, the
 button pressed twice, a game failing to start before and after its board, the refund after the failure
 and by the inactivity timer, a failing save); `test_round3_pending_negative.py` 10 / 31 (the real
-`add_or_remove_bounty`, two real games ended by `end_game`, the real `reset_bounty`). The 15 older
-suites, `test_anon_admin.py` and the tests of this round above give the same results as before (the
+`add_or_remove_bounty`, two real games ended by `end_game`, the real `reset_bounty`);
+`test_round3_poster_name.py` 20 / 37 (through the real `get_bounty_poster()` and poster generator, then
+every character of the first three Unicode planes against the previous delivery, and the `•` unchanged).
+The 15 older suites, `test_anon_admin.py` and the tests of this round above give the same results as before (the
 Crew disband suite was written for an older version of that function and fails on both; one check of
 `test_update_describe.py` that expected the clamp now expects the negative value). **What I could not
 verify:** the real Telegram - why it
@@ -2491,7 +2525,8 @@ answered with internal errors, whether the `/reward` picture or the Reddit ones 
 how long its flood waits really are and whether 5 seconds is the right point to stop waiting (one
 constant) - only that the bot copes when it does; and what the live database holds (see the SQL in 5
 for Smiles that already exist; for 9, which players have a pending bounty that is out of step and how
-often a release is bigger than what is held - the new warning in the log will show it).
+often a release is bigger than what is held - the new warning in the log will show it; for 10, the
+exact decoration characters of the name in your screenshot).
 
 ## Known limitations / things worth knowing
 

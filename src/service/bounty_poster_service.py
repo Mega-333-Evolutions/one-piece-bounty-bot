@@ -269,6 +269,18 @@ def _get_homoglyph_latin_letter(char: str) -> str | None:
     return None
 
 
+def _is_symbol_or_punctuation(char: str) -> bool:
+    """
+    Whether a character is a symbol or a punctuation mark (a heart, a card suit, a star, a
+    currency sign, "°", "§", a bracket ...) by its Unicode category, as opposed to a letter, a
+    digit or a mark that belongs to a letter
+    :param char: A single character
+    :return: True if it is a symbol or a punctuation mark
+    """
+
+    return unicodedata.category(char)[0] in ("S", "P")
+
+
 def get_bounty_poster_name(name: str) -> str:
     """
     Sanitizes a name for use on a wanted poster, for scripts that aren't shown as-is (see
@@ -288,6 +300,13 @@ def get_bounty_poster_name(name: str) -> str:
     Characters whose transliteration is a description made up of multiple words (e.g.
     "♚" -> "black king") or that have no latin equivalent at all (most emoji) are
     discarded instead of being spelled out.
+
+    Symbols and punctuation marks (hearts, card suits, currency signs, "°" ...) are never
+    spelled out either, even when unidecode's description of them is a single word ("♡" ->
+    "hearts", "♠" -> "spades", "€" -> "EUR", "°" -> "deg"): that is not a transliteration, it is
+    the name of the symbol, and it would show on the poster as if it were part of the player's
+    name. They are ignored. The exception is a symbol that stands for a single letter or digit,
+    like "Ⓐ" -> "A" or "₦" -> "N", which is kept as before.
 
     Known "fancy font" look-alike characters (see FANCY_FONT_LOOKALIKE_CHAR_MAP) are mapped
     to their intended Latin letter directly, bypassing unidecode, since unidecode would
@@ -339,8 +358,14 @@ def get_bounty_poster_name(name: str) -> str:
         # output unidecode produces for many decorative/exotic characters it has no real
         # letter equivalent for (e.g. "/XX/" for "༒", "(tm)" for "™", "[(" for "【"). Checking
         # only for the absence of spaces isn't enough - none of those examples contain a space,
-        # but none of them are an actual transliteration either
-        if transliterated and transliterated.isalnum():
+        # but none of them are an actual transliteration either.
+        # A symbol or a punctuation mark never becomes a word: for those unidecode doesn't
+        # transliterate, it only gives the name of what they are, which is a single clean word
+        # for some of them ("♡" -> "hearts", "♠" -> "spades", "€" -> "EUR", "°" -> "deg") and
+        # would be printed on the poster as if it were part of the name. They are ignored. (A
+        # symbol that stands for a single letter or digit, like "Ⓐ" -> "A" or "₦" -> "N", was
+        # already kept above)
+        if transliterated and transliterated.isalnum() and not _is_symbol_or_punctuation(char):
             kept_chars.append(transliterated)
 
     cleaned = re.sub(r"\s+", " ", "".join(kept_chars)).strip()
