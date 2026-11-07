@@ -7,7 +7,12 @@ from typing import Tuple, Callable
 
 from peewee import DoesNotExist
 from src.tg_compat import Update, Chat
-from src.tg_compat.error import RetryAfter, Forbidden, CHAT_NOT_ACCESSIBLE_MESSAGE
+from src.tg_compat.error import (
+    RetryAfter,
+    Forbidden,
+    CHAT_NOT_ACCESSIBLE_MESSAGE,
+    MESSAGE_TO_EDIT_NOT_FOUND_MESSAGE,
+)
 from src.tg_compat.ext import ContextTypes
 
 import constants as c
@@ -290,6 +295,41 @@ async def answer_callback_without_message(update: Update) -> None:
         await update.callback_query.answer(phrases.CALLBACK_MESSAGE_NOT_AVAILABLE, show_alert=True)
     except BadRequest:  # Query too old or already answered
         pass
+
+
+def is_message_to_edit_not_found(error: BadRequest) -> bool:
+    """
+    Whether a BadRequest is Telegram saying that the message to edit is not there (anymore). The
+    message was deleted - by the auto delete, by the player who cancelled a challenge, by an admin
+    - between the moment a button was tapped and the moment the bot edited the message. There is
+    nothing to edit then, however it is tried: the text, the caption and the keyboard of a message
+    are all edited with the same request
+    :param error: The BadRequest
+    :return: True if it is that error
+    """
+
+    return MESSAGE_TO_EDIT_NOT_FOUND_MESSAGE.lower() in str(error).lower()
+
+
+async def handle_message_gone(
+    update: Update, error: BadRequest, answer_callback: bool = False
+) -> None:
+    """
+    Take the bot not being able to edit a message because it is gone (see
+    is_message_to_edit_not_found) as what it is, an expected occurrence of a chat, not a bug
+    :param update: The update
+    :param error: The BadRequest
+    :param answer_callback: True to tell the user of the button that the message is no longer
+    available. For when the bot had something to say on that message (an error), and with the
+    message gone an alert is the only place left to say it
+    :return: None
+    """
+
+    chat_id = update.effective_chat.id if update.effective_chat is not None else None
+    logging.warning(f"The message to edit in chat {chat_id} is gone: {error}")
+
+    if answer_callback and update.callback_query is not None:
+        await answer_callback_without_message(update)
 
 
 async def manage_regular(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -613,7 +653,15 @@ async def manage_after_db(
             case _:
                 raise ValueError("Invalid message source")
     except DoesNotExist as dne:
-        await full_message_or_media_send_or_edit(context, phrases.ITEM_NOT_FOUND, update=update)
+        try:
+            await full_message_or_media_send_or_edit(
+                context, phrases.ITEM_NOT_FOUND, update=update
+            )
+        except BadRequest as display_error:
+            # Raised inside this handler, the sibling "except BadRequest" below never sees it
+            if not is_message_to_edit_not_found(display_error):
+                raise
+            await handle_message_gone(update, display_error, answer_callback=True)
         logging.warning(update)
         logging.exception(dne)
     except (TimedOut, NetworkError) as ne:
@@ -627,31 +675,35 @@ async def manage_after_db(
             if message_source is MessageSource.PRIVATE
             else None
         )
-        try:
-            await full_message_send(
-                context,
-                str(ce),
-                update=update,
-                previous_screens=previous_screens,
-                from_exception=True,
-            )
-        except BadRequest:  # Trying to edit a media caption
+        # The error is shown the first way that works: as the text of a message, as the caption of
+        # a media message (trying to edit a media caption) and, as a last resort, without any
+        # formatting
+        error_text = str(ce)
+        attempts = (
+            (full_message_send, error_text),
+            (full_message_or_media_send_or_edit, error_text),
+            (full_message_or_media_send_or_edit, escape_valid_markdown_chars(error_text)),
+        )
+        for attempt, (send, text) in enumerate(attempts, start=1):
             try:
-                await full_message_or_media_send_or_edit(
+                await send(
                     context,
-                    str(ce),
+                    text,
                     update=update,
                     previous_screens=previous_screens,
                     from_exception=True,
                 )
-            except BadRequest:  # Last resort, send without any formatting
-                await full_message_or_media_send_or_edit(
-                    context,
-                    escape_valid_markdown_chars(str(ce)),
-                    update=update,
-                    previous_screens=previous_screens,
-                    from_exception=True,
-                )
+                break
+            except BadRequest as display_error:
+                # Raised inside this handler, the sibling "except BadRequest" below never sees it
+                if is_message_to_edit_not_found(display_error):
+                    # The message the error was to be shown on is gone (a button was tapped just as
+                    # the message was deleted), and the other ways would fail the same: all that
+                    # is left is telling the user of the button
+                    await handle_message_gone(update, display_error, answer_callback=True)
+                    break
+                if attempt == len(attempts):
+                    raise
     except BadRequest as bre:
         error_str = str(bre).lower()
         if "message is not modified" in error_str:
@@ -664,6 +716,12 @@ async def manage_after_db(
             # reports it as a Forbidden, MTProto as a BadRequest (see _errors.py).
             chat_id = update.effective_chat.id if update.effective_chat is not None else None
             logging.warning(f"Chat {chat_id} is not accessible: {bre}")
+        elif is_message_to_edit_not_found(bre):
+            # Also an expected occurrence, not a bug: the message was deleted just before the bot
+            # edited it (the other player cancelled the challenge, the auto delete, an admin...).
+            # The user can't be told anything on a message that is gone, and it may not be the
+            # message of the button
+            await handle_message_gone(update, bre)
         else:
             raise bre
     except NavigationLimitReachedException:

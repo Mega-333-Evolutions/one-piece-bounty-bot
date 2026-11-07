@@ -2246,13 +2246,13 @@ admin's message has no sender, and the code also copes with the group itself bei
 whether the bot has the "delete messages" right in your group (without it the command stays and
 only the warning is deleted).
 
-## Round 3 (Nov 1 to Nov 6): Who's Who results, Admiral / Legendary Pirate privileges, two players pressing Accept together, Smile ability cap, errors from the logs, Telegram's internal errors, the two rare game-start cases, a negative pending bounty is no longer clamped to 0, symbols in the poster name are ignored, a poster name with Arabic decorations showed only its first letter
+## Round 3 (Nov 1 to Nov 7): Who's Who results, Admiral / Legendary Pirate privileges, two players pressing Accept together, Smile ability cap, errors from the logs, Telegram's internal errors, the two rare game-start cases, a negative pending bounty is no longer clamped to 0, symbols in the poster name are ignored, a poster name with Arabic decorations showed only its first letter, a button pressed on a message that had just been deleted was reported as a bug
 
-Thirteen things from your messages, each reproduced first on the code of the previous delivery and then
+Fourteen things from your messages, each reproduced first on the code of the previous delivery and then
 fixed. Two of them (1 and 2) turned out to be the same bug, and so did the two errors of Nov 3 and 4
 (7). The two rare cases left over from 4 are fixed in 8, the pending bounty that is no longer
-clamped to 0 is 9, the poster name without spelled-out symbols is 10, and the poster name that showed
-only its first letter is 11.
+clamped to 0 is 9, the poster name without spelled-out symbols is 10, the poster name that showed
+only its first letter is 11, and the error about a message that had already been deleted is 12.
 
 ### 1. Who's Who global challenge: the winner got no "you won", the loser no "you lost"
 
@@ -2558,6 +2558,66 @@ Not changed:
 - The Latin letters of such a name are drawn in the sans-serif Blogger Sans, not in the serif of the other
   posters (that is how the native-script code was written).
 
+### 12. A button pressed on a message that had just been deleted: "Message to edit not found" was reported as a bug (Nov 7)
+
+The report: a button press (`"data": "{\"a\":5612880,\"v\":0,\"u\":[294],\"sc\":7}"`) on a photo message of
+the group "One Piece Chat" ("... you have been challenged by ... to play Who's Who with a wager of ... If the
+challenge is not accepted within 60 seconds, it will be automatically rejected."), and the traceback
+`manage()` -> `manage_after_db()` line 648 -> `full_message_or_media_send_or_edit()` -> `full_media_send()` ->
+`edit_message_caption()` -> `BadRequest: Message to edit not found` (Telethon's `MessageIdInvalidError`).
+
+Reading the button: `sc: 7` is the screen of the Accept / Reject buttons of a challenge, `v: 0` is the "No" one,
+`u` the only player who may press it (the challenged one), `a` the game. The challenged player rejected a
+Who's Who challenge.
+
+Cause: line 648 is the last of the three ways the bot shows an error to a player when a command or a button
+raises a chat error (`CommonChatException`, `GroupChatException`, `PrivateChatException`, like "Game not
+found"): it edits the message the button is on, as text, then as the caption of a media message, then
+without any formatting. All three failed with "Message to edit not found": the message was no longer there. It
+had been deleted between the moment the button was tapped (the bot had fetched the message by then, the
+report has its whole text) and the moment the bot edited it. An exception raised inside an `except` block
+is not caught by the `except BadRequest` next to it, so the last failure went straight to the catch-all of
+`manage()` and was reported as "Error handling update". Nothing can be done about a message that is gone, so
+this was never a bug of the bot, only a report of something that happens in a chat. The traceback only has
+the last exception, not the chat error that was being shown; the one I can find on the path of that button
+is "Game not found" (the game of a challenge that was cancelled, timed out or answered a moment before, and
+whose message went with it), but I can't confirm it from the report, and it does not matter for the fix.
+
+Reproduced with the real chain (`manage()` -> the group chat manager -> the real screen of that button -> the
+real message sending code) and a Telegram that answers "Message to edit not found" for the messages that were
+deleted: on the previous delivery the bot makes five edits of the deleted message (the three ways, two of
+them with a second try as a caption) and reports the error, as in your report. When the game is still there
+the same press fails earlier, in the edit that says "... has rejected the challenge", and is reported too;
+the game was not deleted then either, and stayed open until its 60 seconds ran out.
+
+Now:
+- `manage_after_db()` (`manage_message.py`): when showing a chat error, or "Item not found", on the message of
+  a button fails with "Message to edit not found", the bot stops there (the other ways would fail the same: one
+  edit, not five), writes a warning in the log and tells the player with an alert, the one a button on a message
+  the bot can't fetch already got: "This message is no longer available. Please send the command again". On a
+  message that is gone there is no other place left to tell them. Any other BadRequest while showing the error
+  is handled exactly as before: the three ways are all tried and then it is reported.
+- The `except BadRequest` of `manage_after_db()`: a "Message to edit not found" that comes from the edit of a
+  screen itself is now an expected occurrence like the ones already listed there (message is not modified, query
+  too old, chat not accessible): a warning in the log, not an "Error handling update". The player is not told
+  anything then, as the message that was deleted may not even be the message of the button. Every other
+  BadRequest is still reported.
+- The "No" of a challenge (`screen_game_opponent_confirmation.py`): the edit that says the challenge was
+  rejected now ignores a BadRequest, as the edit of the same message when the 60 seconds run out already did, so
+  the game is deleted even when its message is gone. Before, the error left before the game was deleted.
+  Nothing is held for a challenge that is waiting for its opponent, so no money moves.
+- `is_message_to_edit_not_found()` and `handle_message_gone()` are the two helpers for that, next to
+  `answer_callback_without_message()`.
+
+Not changed:
+- A message that is there: the error is shown on it as before, the same text and the same keyboard (checked in
+  a group and in a private chat), and "No" on a challenge that is there says it was rejected as before.
+- A game that fails to start because its message is gone is still ended and both players are refunded, as
+  before (that code runs before the error leaves); only the report is gone.
+- What happens to the jobs and the background tasks: they already took this error as expected.
+- If you would rather the player see nothing at all instead of the alert, it is one argument
+  (`answer_callback=True`) in two places of `manage_after_db()`.
+
 ### On verification
 
 New test files, all driven through the real functions and screens on in-memory SQLite with the
@@ -2583,7 +2643,12 @@ tesseract reads MINATO on it; what is drawn with which font for 24 names; every 
 three Unicode planes in the middle of a Latin word and at the end of an Arabic and of a Devanagari name
 (below U+3000 all of them, above it one in 13), against the previous delivery and against the font
 files; 135 native-script names compared pixel for pixel with the previous delivery; 240 names drawn on 8
-threads at once; the font check failing).
+threads at once; the font check failing); `test_round3_gone_message.py` 10 / 28 (the real chain from
+`manage()` through the group chat manager and the real screen of the "No" button, with a Telegram that
+answers "Message to edit not found" for the deleted messages: the report as it came, the game still there,
+an item that is not found, a screen whose own edit finds the message gone, a button of the private chat,
+what must not change - the error on a message that is there, the caption fallback, every other BadRequest -
+and the helpers).
 The 15 older suites, `test_anon_admin.py` and the tests of this round above give the same results as before (the
 Crew disband suite was written for an older version of that function and fails on both; one check of
 `test_update_describe.py` that expected the clamp now expects the negative value). **What I could not
@@ -2594,7 +2659,9 @@ constant) - only that the bot copes when it does; and what the live database hol
 for Smiles that already exist; for 9, which players have a pending bounty that is out of step and how
 often a release is bigger than what is held - the new warning in the log will show it; for 10, the
 exact decoration characters of the name in your screenshot; for 11, that the name in your Telegram
-profile is exactly the text you sent me - I rendered it from that text).
+profile is exactly the text you sent me - I rendered it from that text; for 12, which chat error was being
+shown on the message that was gone and why the message was gone: the report doesn't say, so what I checked is
+that whatever the error and whatever deleted the message, the bot no longer reports it).
 
 ## Known limitations / things worth knowing
 

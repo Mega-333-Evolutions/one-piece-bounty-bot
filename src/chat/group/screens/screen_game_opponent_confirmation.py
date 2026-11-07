@@ -73,6 +73,8 @@ async def manage(
         if ReservedKeyboardKeys.CONFIRM in inbound_keyboard.info:  # Opponent rejected
             should_delete_message = False
             ot_text = phrases.GAME_CHALLENGE_REJECTED.format(mention_markdown_user(game.opponent))
+            # Whatever happens to the message (the challenger can cancel, which deletes it, just
+            # as the opponent rejects), the challenge is rejected: the game is deleted below
             await full_media_send(
                 context,
                 caption=ot_text,
@@ -80,6 +82,7 @@ async def manage(
                 add_delete_button=True,
                 authorized_users=game.get_players(),
                 edit_only_caption_and_keyboard=True,
+                ignore_bad_request_exception=True,
             )
 
         await delete_game(context, update, game, should_delete_message=should_delete_message)
