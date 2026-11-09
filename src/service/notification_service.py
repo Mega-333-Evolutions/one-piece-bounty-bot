@@ -13,7 +13,7 @@ from src.model.enums.Notification import Notification
 from src.model.enums.Screen import Screen
 from src.model.pojo.Keyboard import Keyboard
 from src.service.message_service import full_message_send
-from src.service.language_service import set_current_language
+from src.service.language_service import set_current_language, using_language
 
 
 async def send_notification(
@@ -41,9 +41,12 @@ async def send_notification(
     if (
         should_forward_message
     ):  # Sync since it's for deleted messages, else no message is forwarded before the deletion
-        await send_notification_execute(
-            context, user, notification, should_forward_message, update
-        )
+        # The notification is written in the language of the user that receives it, and what is
+        # left to do for the caller (it runs in the same task) is written in the caller's language
+        with using_language(user.get_language()):
+            await send_notification_execute(
+                context, user, notification, should_forward_message, update
+            )
     else:
         context.application.create_task(
             send_notification_execute(context, user, notification, should_forward_message, update)

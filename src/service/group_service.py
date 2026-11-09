@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from datetime import datetime, timedelta
+from typing import Callable
 
 from src.tg_compat import Message
 from src.tg_compat.error import TelegramError, RetryAfter
@@ -22,6 +23,7 @@ from src.model.PredictionGroupChatMessage import PredictionGroupChatMessage
 from src.model.User import User
 from src.model.enums.Feature import Feature
 from src.model.pojo.Keyboard import Keyboard
+from src.service.language_service import using_language
 from src.service.message_service import (
     full_message_send,
     delete_message,
@@ -143,8 +145,8 @@ def get_group_chats_with_feature_enabled(
 async def broadcast_to_chats_with_feature_enabled_dispatch(
     context: ContextTypes.DEFAULT_TYPE,
     feature: Feature,
-    text: str,
-    inline_keyboard: list[list[Keyboard]] = None,
+    text: str | Callable[[], str],
+    inline_keyboard: list[list[Keyboard]] | Callable[[], list[list[Keyboard]]] = None,
     excluded_group_chats: list[GroupChat] = None,
     external_item: BaseModel = None,
     filter_by_groups: list[Group] = None,
@@ -153,8 +155,9 @@ async def broadcast_to_chats_with_feature_enabled_dispatch(
     Broadcasts a message to all the chats with a feature enabled
     :param context: The context
     :param feature: The feature
-    :param text: The message
-    :param inline_keyboard: The outbound keyboard
+    :param text: The message. A function that returns it, to be called once for every language
+    of the chats (in that language), if the chats don't all share the one it is written in
+    :param inline_keyboard: The outbound keyboard. A function that returns it, like the text
     :param excluded_group_chats: The chats to exclude from the broadcast
     :param external_item: The external item to save the group chat message
     :param filter_by_groups: The groups to filter by
@@ -176,8 +179,8 @@ async def broadcast_to_chats_with_feature_enabled_dispatch(
 async def broadcast_to_chats_with_feature_enabled(
     context: ContextTypes.DEFAULT_TYPE,
     feature: Feature,
-    text: str,
-    inline_keyboard: list[list[Keyboard]] = None,
+    text: str | Callable[[], str],
+    inline_keyboard: list[list[Keyboard]] | Callable[[], list[list[Keyboard]]] = None,
     excluded_group_chats: list[GroupChat] = None,
     external_item: BaseModel = None,
     filter_by_groups: list[Group] = None,
@@ -186,8 +189,9 @@ async def broadcast_to_chats_with_feature_enabled(
     Broadcasts a message to all the chats with a feature enabled
     :param context: The context
     :param feature: The feature
-    :param text: The message
-    :param inline_keyboard: The outbound keyboard
+    :param text: The message. A function that returns it, to be called once for every language
+    of the chats (in that language), if the chats don't all share the one it is written in
+    :param inline_keyboard: The outbound keyboard. A function that returns it, like the text
     :param excluded_group_chats: The chats to exclude from the broadcast
     :param external_item: The external item to save the group chat message
     :param filter_by_groups: The groups to filter by
@@ -217,12 +221,25 @@ async def broadcast_to_chats_with_feature_enabled(
         )
         await unpin_feature_messages_dispatch(context, messages_to_unpin)
 
+    # Every group chat gets the message in the language of its group, so what is written by a
+    # function is written once for every language there is among them
+    messages_by_language: dict = {}
+
     for group_chat in group_chats:
         group_chat: GroupChat = group_chat
         try:
-            message: Message = await full_message_send(
-                context, text, keyboard=inline_keyboard, group_chat=group_chat
-            )
+            group_language = group_chat.group.get_language()
+            with using_language(group_language):
+                if group_language not in messages_by_language:
+                    messages_by_language[group_language] = (
+                        text() if callable(text) else text,
+                        inline_keyboard() if callable(inline_keyboard) else inline_keyboard,
+                    )
+                group_text, group_keyboard = messages_by_language[group_language]
+
+                message: Message = await full_message_send(
+                    context, group_text, keyboard=group_keyboard, group_chat=group_chat
+                )
 
             if feature is Feature.PREDICTION:  # Save Prediction Group Chat Message
                 prediction_group_chat_message: PredictionGroupChatMessage = (

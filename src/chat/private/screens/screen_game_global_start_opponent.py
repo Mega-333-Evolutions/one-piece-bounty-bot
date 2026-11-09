@@ -18,6 +18,7 @@ from src.service.game_service import (
     collect_game_wagers_and_set_in_progress,
     get_text,
 )
+from src.service.language_service import using_language
 from src.service.message_service import (
     full_message_send,
     get_yes_no_keyboard,
@@ -166,37 +167,47 @@ async def manage(
         answer_callback=True,
     )
 
-    ot_text = get_text(game, False, is_for_group_global=True)
-    outbound_keyboard: list[list[Keyboard]] = [
-        # Play as global button
-        [
-            Keyboard(
-                phrases.GRP_KEY_GAME_PLAY,
-                info={ReservedKeyboardKeys.DEFAULT_PRIMARY_KEY: game.id},
-                screen=Screen.PVT_GAME_GLOBAL_START_OPPONENT,
-                is_deeplink=True,
-            )
-        ],
-    ]
+    def get_global_message() -> tuple[str, list[list[Keyboard]]]:
+        """The text and the keyboard of the accepted challenge, in the language that is set"""
+        return (
+            get_text(game, False, is_for_group_global=True),
+            [
+                # Play as global button
+                [
+                    Keyboard(
+                        phrases.GRP_KEY_GAME_PLAY,
+                        info={ReservedKeyboardKeys.DEFAULT_PRIMARY_KEY: game.id},
+                        screen=Screen.PVT_GAME_GLOBAL_START_OPPONENT,
+                        is_deeplink=True,
+                    )
+                ],
+            ],
+        )
 
     # Update group message if present
     if game.group_chat is not None:
-        context.application.create_task(
-            full_media_send(
-                context,
-                caption=ot_text,
-                chat_id=game.group_chat.group.tg_group_id,
-                edit_message_id=game.message_id,
-                keyboard=outbound_keyboard,
-                add_delete_button=True,
-                edit_only_caption_and_keyboard=True,
-                group_chat=game.group_chat,
-                authorized_users=[game.challenger],
+        # In the language of the group, not in the one of the player that pressed Accept (the
+        # task created inside the block keeps it)
+        with using_language(game.group_chat.group.get_language()):
+            group_text, group_keyboard = get_global_message()
+            context.application.create_task(
+                full_media_send(
+                    context,
+                    caption=group_text,
+                    chat_id=game.group_chat.group.tg_group_id,
+                    edit_message_id=game.message_id,
+                    keyboard=group_keyboard,
+                    add_delete_button=True,
+                    edit_only_caption_and_keyboard=True,
+                    group_chat=game.group_chat,
+                    authorized_users=[game.challenger],
+                )
             )
-        )
 
-    # If is guess game, then also edit the message that was accepted in private chat
+    # If is guess game, then also edit the message that was accepted in private chat, which is
+    # the one of this player: in the language of this player
     if game.is_guess_based():
+        ot_text, outbound_keyboard = get_global_message()
         context.application.create_task(
             full_media_send(
                 context,

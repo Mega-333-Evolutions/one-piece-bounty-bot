@@ -16,7 +16,7 @@ from src.model.enums.PredictionStatus import PredictionStatus
 from src.model.error.CustomException import PredictionException
 from src.model.pojo.Keyboard import Keyboard
 from src.service.message_service import full_message_send
-from src.service.language_service import get_current_language, set_current_language
+from src.service.language_service import using_language
 from src.service.prediction_service import (
     prediction_is_sent_to_group_chat,
     get_prediction_text,
@@ -70,23 +70,21 @@ async def manage(
             if prediction_is_sent_to_group_chat(prediction, group_chat):
                 raise PredictionException(phrases.PREDICTION_SEND_TO_GROUP_ALREADY_SENT)
 
-            inline_keyboard = (
-                [[get_prediction_deeplink_button(prediction)]]
-                if prediction.get_status() is PredictionStatus.SENT
-                else None
-            )
             try:
-                # This message is sent to the group, so it must use the group's own language,
-                # not the (DM) owner's - restore it right after for the rest of this function,
-                # which is all DM-facing text again
-                owner_language = get_current_language()
-                set_current_language(group.get_language())
-                text = get_prediction_text(prediction)
+                # This message is sent to the group, so it must use the group's own language
+                # (the button included), not the (DM) owner's - which is back right after, for
+                # the rest of this function, which is all DM-facing text again
+                with using_language(group.get_language()):
+                    inline_keyboard = (
+                        [[get_prediction_deeplink_button(prediction)]]
+                        if prediction.get_status() is PredictionStatus.SENT
+                        else None
+                    )
+                    text = get_prediction_text(prediction)
 
-                message: Message = await full_message_send(
-                    context, text, group_chat=group_chat, keyboard=inline_keyboard
-                )
-                set_current_language(owner_language)
+                    message: Message = await full_message_send(
+                        context, text, group_chat=group_chat, keyboard=inline_keyboard
+                    )
 
                 prediction_group_chat_message: PredictionGroupChatMessage = (
                     PredictionGroupChatMessage()
@@ -97,7 +95,6 @@ async def manage(
                 prediction_group_chat_message.save()
 
             except TelegramError as e:
-                set_current_language(owner_language)
                 # Alert with error
                 await full_message_send(context, str(e), update=update, show_alert=True)
         except PredictionException as e:

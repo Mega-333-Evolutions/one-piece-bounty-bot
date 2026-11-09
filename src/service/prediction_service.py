@@ -1,5 +1,7 @@
 import datetime
+import functools
 from datetime import datetime
+from typing import Callable
 
 from src.tg_compat.error import BadRequest, TelegramError
 from src.tg_compat.ext import ContextTypes
@@ -33,6 +35,7 @@ from src.service.group_service import (
     broadcast_to_chats_with_feature_enabled_dispatch,
     save_group_chat_error,
 )
+from src.service.language_service import using_language
 from src.service.message_service import escape_valid_markdown_chars, full_message_send
 from src.service.notification_service import send_notification
 from src.utils.context_utils import get_random_user_context_inner_query_key
@@ -64,13 +67,13 @@ async def send(
 
     prediction.save()
 
-    text = get_prediction_text(prediction)
+    # Every group gets it in its own language, so both are written for each of them when it is sent
     await broadcast_to_chats_with_feature_enabled_dispatch(
         context,
         Feature.PREDICTION,
-        text,
+        functools.partial(get_prediction_text, prediction),
         external_item=prediction,
-        inline_keyboard=[[get_prediction_deeplink_button(prediction)]],
+        inline_keyboard=lambda: [[get_prediction_deeplink_button(prediction)]],
     )
 
 
@@ -411,7 +414,7 @@ async def close_bets(context: ContextTypes.DEFAULT_TYPE, prediction: Prediction)
 
     # Send message in reply notifying users that bets are closed
     await send_prediction_status_change_message_or_refresh_dispatch(
-        context, phrases.PREDICTION_CLOSED_FOR_BETS, prediction
+        context, lambda: phrases.PREDICTION_CLOSED_FOR_BETS, prediction
     )
 
 
@@ -576,7 +579,7 @@ async def set_results(context: ContextTypes.DEFAULT_TYPE, prediction: Prediction
 
     # Send message in reply notifying users that results are set
     await send_prediction_status_change_message_or_refresh_dispatch(
-        context, phrases.PREDICTION_RESULTS_SET, prediction
+        context, lambda: phrases.PREDICTION_RESULTS_SET, prediction
     )
 
     # Send notification to users
@@ -733,7 +736,7 @@ async def remove_all_bets_from_active_predictions(context: ContextTypes.DEFAULT_
             PredictionOptionUser.prediction == prediction
         ).execute()
         await send_prediction_status_change_message_or_refresh_dispatch(
-            context, phrases.PREDICTION_ALL_BETS_REMOVED_FOR_BOUNTY_RESET, prediction
+            context, lambda: phrases.PREDICTION_ALL_BETS_REMOVED_FOR_BOUNTY_RESET, prediction
         )
 
 
@@ -956,7 +959,7 @@ def get_prediction_from_message_id(group_chat: GroupChat, message_id: int) -> Pr
 
 async def send_prediction_status_change_message_or_refresh_dispatch(
     context: ContextTypes.DEFAULT_TYPE,
-    text: str = None,
+    text: str | Callable[[], str] = None,
     prediction: Prediction = None,
     should_refresh: bool = False,
     group_chat: GroupChat = None,
@@ -965,7 +968,8 @@ async def send_prediction_status_change_message_or_refresh_dispatch(
     Dispatch a prediction status change message
     :param context: The context
     :param prediction: The prediction
-    :param text: The text
+    :param text: The text. A function that returns it, to be called for every group chat (in the
+    language of that group), since the groups don't all share a language
     :param should_refresh: Whether to should_refresh the message instead of sending a new one
     :param group_chat: The group chat for which to refresh the message
     :return: None
@@ -982,7 +986,7 @@ async def send_prediction_status_change_message_or_refresh_dispatch(
 
     for prediction in predictions:
         if should_refresh:
-            text = get_prediction_text(prediction)
+            text = functools.partial(get_prediction_text, prediction)
 
         context.application.create_task(
             send_prediction_status_change_message_or_refresh(
@@ -994,7 +998,7 @@ async def send_prediction_status_change_message_or_refresh_dispatch(
 async def send_prediction_status_change_message_or_refresh(
     context: ContextTypes.DEFAULT_TYPE,
     prediction: Prediction,
-    text: str,
+    text: str | Callable[[], str],
     should_refresh: bool = False,
     group_chat: GroupChat = None,
 ):
@@ -1003,7 +1007,8 @@ async def send_prediction_status_change_message_or_refresh(
     refresh the message
     :param context: The context
     :param prediction: The prediction
-    :param text: The text
+    :param text: The text. A function that returns it, to be called for every group chat (in the
+    language of that group), since the groups don't all share a language
     :param should_refresh: Whether to should_refresh the message instead of sending a new one
     :param group_chat: The group chat for which to refresh the message
     :return: None
@@ -1020,22 +1025,27 @@ async def send_prediction_status_change_message_or_refresh(
     for message in messages:
         group_chat: GroupChat = message.group_chat
         try:
-            if should_refresh:  # Edit original message
-                await full_message_send(
-                    context,
-                    text,
-                    group_chat=group_chat,
-                    edit_message_id=message.message_id,
-                    keyboard=[[get_prediction_deeplink_button(prediction)]],
-                )
-            else:  # Send new message in reply
-                await full_message_send(
-                    context,
-                    text,
-                    group_chat=group_chat,
-                    reply_to_message_id=message.message_id,
-                    allow_sending_without_reply=False,
-                )
+            # Written in the language of the group of this chat, not in the one of whoever (a
+            # player in private chat, a timer...) caused it
+            with using_language(group_chat.group.get_language()):
+                group_text = text() if callable(text) else text
+
+                if should_refresh:  # Edit original message
+                    await full_message_send(
+                        context,
+                        group_text,
+                        group_chat=group_chat,
+                        edit_message_id=message.message_id,
+                        keyboard=[[get_prediction_deeplink_button(prediction)]],
+                    )
+                else:  # Send new message in reply
+                    await full_message_send(
+                        context,
+                        group_text,
+                        group_chat=group_chat,
+                        reply_to_message_id=message.message_id,
+                        allow_sending_without_reply=False,
+                    )
         except (TelegramError, BadRequest) as e:
             # New text same as old one, ignore
             if not (

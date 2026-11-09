@@ -31,7 +31,7 @@ from src.service.game_service import (
     get_global_share_keyboard,
 )
 from src.service.message_service import full_message_send, escape_valid_markdown_chars
-from src.service.language_service import get_current_language, set_current_language
+from src.service.language_service import using_language
 
 
 def get_specific_text(
@@ -275,23 +275,28 @@ async def run_game(
 
     # Send the message to the users
     for u in users:
-        specific_text = get_specific_text(
-            game, board, player_type=get_player_type(game, u), is_for_new_life=True
-        )
-        if board.can_issue_life():
-            remaining_time_text = (
-                phrases.GUESS_GAME_INPUT_CAPTION_SECONDS_TO_NEXT_LIFE_1
-                if should_send_to_all_players
-                else phrases.GUESS_GAME_INPUT_CAPTION_SECONDS_TO_NEXT_LIFE_2
+        # Everybody reads it in their own language, not in the one of the player (or of the
+        # restarted hint thread) that is running this
+        with using_language(u.get_language()):
+            specific_text = get_specific_text(
+                game, board, player_type=get_player_type(game, u), is_for_new_life=True
             )
-            ot_text = phrases.GUESS_OR_LIFE_GAME_PRIVATE_RECAP.format(
-                specific_text,
-                remaining_time_text.format(hint_wait_seconds),
-            )
-        else:
-            ot_text = specific_text
+            if board.can_issue_life():
+                remaining_time_text = (
+                    phrases.GUESS_GAME_INPUT_CAPTION_SECONDS_TO_NEXT_LIFE_1
+                    if should_send_to_all_players
+                    else phrases.GUESS_GAME_INPUT_CAPTION_SECONDS_TO_NEXT_LIFE_2
+                )
+                ot_text = phrases.GUESS_OR_LIFE_GAME_PRIVATE_RECAP.format(
+                    specific_text,
+                    remaining_time_text.format(hint_wait_seconds),
+                )
+            else:
+                ot_text = specific_text
 
-        context.application.create_task(full_message_send(context, ot_text, chat_id=u.tg_user_id))
+            context.application.create_task(
+                full_message_send(context, ot_text, chat_id=u.tg_user_id)
+            )
 
         # Set private screen for input
         context.application.create_task(set_user_private_screen(u, game))
@@ -419,28 +424,24 @@ async def validate_answer(
     # loser, and the group chat respectively), who may each have a different language set - so
     # each one must be built under that specific party's language, not whichever language
     # happens to be active from this player's own DM interaction
-    player_language = get_current_language()
+    with using_language(user.get_language()):
+        specific_winner_text = get_specific_text(
+            game, board, is_finished=True, player_type=player_type
+        )
+        winner_text, _ = get_winner_loser_text(game, specific_winner_text)
 
-    set_current_language(user.get_language())
-    specific_winner_text = get_specific_text(
-        game, board, is_finished=True, player_type=player_type
-    )
-    winner_text, _ = get_winner_loser_text(game, specific_winner_text)
-
-    set_current_language(loser.get_language())
-    specific_loser_text = get_specific_text(
-        game, board, is_finished=True, player_type=get_player_type(game, loser)
-    )
-    _, loser_text = get_winner_loser_text(game, specific_loser_text)
+    with using_language(loser.get_language()):
+        specific_loser_text = get_specific_text(
+            game, board, is_finished=True, player_type=get_player_type(game, loser)
+        )
+        _, loser_text = get_winner_loser_text(game, specific_loser_text)
 
     group_text = None
     if game.group_chat is not None:
-        set_current_language(game.group_chat.group.get_language())
-        group_text = get_specific_text(
-            game, board, is_finished=True, outcome=outcome, is_for_group=True
-        )
-
-    set_current_language(player_language)
+        with using_language(game.group_chat.group.get_language()):
+            group_text = get_specific_text(
+                game, board, is_finished=True, outcome=outcome, is_for_group=True
+            )
 
     await end_text_based_game(
         context, game, outcome, user, winner_text, loser, loser_text, group_text

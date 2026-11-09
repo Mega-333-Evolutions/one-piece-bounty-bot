@@ -1,3 +1,4 @@
+import contextlib
 import contextvars
 
 from src.model.enums.Language import Language, LANGUAGE_DEFAULT
@@ -34,3 +35,31 @@ def get_current_language() -> Language:
     """
 
     return _current_language.get()
+
+
+@contextlib.contextmanager
+def using_language(language: Language | str | None):
+    """
+    Generate the phrases inside the block in the given language, then put back the language that
+    was set before, whatever happens inside the block (an error included).
+
+    Every message is written in the language of the chat it is sent to: the DM language of the
+    user for a private chat and the language of the group for a group chat, no matter who caused
+    it. The task that handles an update starts with the language of the user that sent it (and of
+    the group, if it came from one), so whatever is written for somebody else (another player, a
+    group, a crew mate...) has to be built in a block like this one:
+
+        with using_language(recipient.get_language()):
+            text = phrases.SOMETHING.format(...)
+            await full_message_send(context, text, chat_id=recipient.tg_user_id)
+
+    :param language: The language to use inside the block. If None, the default language
+    :return: None
+    """
+
+    previous = _current_language.get()
+    set_current_language(language)
+    try:
+        yield
+    finally:
+        _current_language.set(previous)

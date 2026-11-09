@@ -1088,8 +1088,8 @@ def get_delete_button(authorized_users: list[User], button_text: str = None) -> 
 def get_yes_no_keyboard(
     user: User = None,
     screen: Screen = None,
-    yes_text: str = phrases.KEYBOARD_OPTION_YES,
-    no_text: str = phrases.KEYBOARD_OPTION_NO,
+    yes_text: str = None,
+    no_text: str = None,
     primary_key: int = None,
     extra_keys: dict = None,
     yes_screen: Screen = None,
@@ -1117,8 +1117,8 @@ def get_yes_no_keyboard(
 
     :param user: User that can operate the keyboard
     :param primary_key: Primary key
-    :param yes_text: Text for the yes button
-    :param no_text: Text for the no button
+    :param yes_text: Text for the yes button. If not provided, the default Yes text is used
+    :param no_text: Text for the no button. If not provided, the default No text is used
     :param screen: The default screen that will be called when the user clicks on the yes/no button
     :param extra_keys: Dict of extra keys to add to the keyboard
     :param yes_screen: Screen to call when the user clicks on the yes button. If None, the default
@@ -1144,6 +1144,13 @@ def get_yes_no_keyboard(
     :param no_keys_to_exclude: List of keys to exclude from the copy of info dict for the no button
     :return: The yes and no keyboard
     """
+
+    # The default texts are read now, in the language set for the message that is being built,
+    # and not when this module is imported (which is always the default language)
+    if yes_text is None:
+        yes_text = phrases.KEYBOARD_OPTION_YES
+    if no_text is None:
+        no_text = phrases.KEYBOARD_OPTION_NO
 
     if authorized_users is None:
         authorized_users = []
@@ -1270,7 +1277,7 @@ def get_back_button(
     inbound_keyboard: Keyboard,
     excluded_keys: list[str] = None,
     back_screen_index: int = 0,
-    key_text: str = phrases.KEYBOARD_OPTION_BACK,
+    key_text: str = None,
     user: User = None,
     info: dict = None,
 ) -> Keyboard:
@@ -1280,10 +1287,15 @@ def get_back_button(
     :param inbound_keyboard: Keyboard object
     :param excluded_keys: List of keys to exclude from the copy of info dict
     :param back_screen_index: Index of the screen to go back to from previous_screens. Default: 0
-    :param key_text: Text for the back button
+    :param key_text: Text for the back button. If not provided, the default Back text is used
     :param user: The user, used for previous screens if inbound_keyboard is None
     :param info: Info dict to add to the back button
     """
+
+    # Read now, in the language set for the message that is being built, and not when this
+    # module is imported (which is always the default language)
+    if key_text is None:
+        key_text = phrases.KEYBOARD_OPTION_BACK
 
     info_copy = info.copy() if info is not None else {}
 

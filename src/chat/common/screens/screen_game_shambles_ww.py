@@ -19,6 +19,7 @@ from src.service.game_service import (
     should_proceed_after_hint_sleep,
     get_global_time_based_text,
 )
+from src.service.language_service import using_language
 from src.service.message_service import full_media_send
 
 
@@ -60,39 +61,49 @@ async def run_game(
     )
     # Send the image
     saved_media: SavedMedia = SavedMedia(media_type=SavedMediaType.PHOTO, file_name=file_name)
-    caption = phrases.GUESS_CHARACTER_GAME_INPUT_CAPTION
 
-    if board.revealed_letters_count >= 1:
-        # Add hint
-        hint = game.get_terminology().name[: board.revealed_letters_count]
-        caption += phrases.GUESS_GAME_INPUT_CAPTION_HINT.format(hint)
+    def get_caption() -> str:
+        """The caption of the image, in the language that is set"""
+        caption = phrases.GUESS_CHARACTER_GAME_INPUT_CAPTION
 
-    if game.is_global():
-        caption += get_global_time_based_text(game, user)
+        if board.revealed_letters_count >= 1:
+            # Add hint
+            hint = game.get_terminology().name[: board.revealed_letters_count]
+            caption += phrases.GUESS_GAME_INPUT_CAPTION_HINT.format(hint)
 
-    if should_send_to_all_players:
-        if board.can_reduce_level():
-            caption += phrases.GUESS_GAME_INPUT_CAPTION_SECONDS_TO_NEXT_IMAGE.format(
+        if game.is_global():
+            caption += get_global_time_based_text(game, user)
+
+        if should_send_to_all_players:
+            if board.can_reduce_level():
+                caption += phrases.GUESS_GAME_INPUT_CAPTION_SECONDS_TO_NEXT_IMAGE.format(
+                    hint_wait_seconds
+                )
+
+        if (
+            should_send_to_all_players
+            and not board.can_reduce_level()
+            and not board.have_revealed_all_letters()
+        ):
+            caption += phrases.GUESS_GAME_INPUT_CAPTION_SECONDS_TO_NEXT_HINT.format(
                 hint_wait_seconds
             )
 
-    if (
-        should_send_to_all_players
-        and not board.can_reduce_level()
-        and not board.have_revealed_all_letters()
-    ):
-        caption += phrases.GUESS_GAME_INPUT_CAPTION_SECONDS_TO_NEXT_HINT.format(hint_wait_seconds)
+        return caption
 
     for u in users:
-        context.application.create_task(
-            full_media_send(
-                context,
-                saved_media=saved_media,
-                chat_id=u.tg_user_id,
-                caption=caption,
-                ignore_forbidden_exception=True,
+        # Everybody reads it in their own language, not in the one of the player (or of the
+        # restarted hint thread) that is running this
+        with using_language(u.get_language()):
+            context.application.create_task(
+                full_media_send(
+                    context,
+                    saved_media=saved_media,
+                    chat_id=u.tg_user_id,
+                    caption=get_caption(),
+                    ignore_forbidden_exception=True,
+                )
             )
-        )
 
         # Set private screen for input
         context.application.create_task(set_user_private_screen(u, game))

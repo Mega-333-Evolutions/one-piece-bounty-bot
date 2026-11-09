@@ -61,7 +61,11 @@ from src.service.message_service import (
     get_deeplink,
 )
 from src.service.notification_service import send_notification
-from src.service.language_service import get_current_language, set_current_language
+from src.service.language_service import (
+    get_current_language,
+    set_current_language,
+    using_language,
+)
 from src.utils.context_utils import (
     get_bot_context_data,
     set_bot_context_data,
@@ -992,6 +996,31 @@ def is_unreachable_recipient_error(error: Exception) -> bool:
     return False
 
 
+def get_go_to_game_message_keyboard(game: Game, recipient: User) -> list[list[Keyboard]]:
+    """
+    The keyboard under the result of a game for a player, written in the language of that player:
+    the winner and the loser don't necessarily share one, nor the one of the player who sent the
+    answer that ended the game
+    :param game: The game
+    :param recipient: The player that gets the result
+    :return: The keyboard, empty if the game is global (it was not played in a group message)
+    """
+
+    if game.is_global():
+        return []
+
+    # Go to game message in group button
+    with using_language(recipient.get_language()):
+        return [
+            [
+                Keyboard(
+                    text=phrases.PVT_KEY_GO_TO_MESSAGE,
+                    url=get_message_url(game.message_id, game.group_chat),
+                )
+            ]
+        ]
+
+
 async def send_guess_game_result_message(
     context: ContextTypes.DEFAULT_TYPE,
     recipient: User,
@@ -1094,19 +1123,6 @@ async def guess_game_validate_answer(
         logging.exception(f"No final image for game {game.id}, sending the result without it")
         errors.append(e)
 
-    outbound_keyboard: list[list[Keyboard]] = []
-
-    if not game.is_global():
-        # Go to game message in group button
-        outbound_keyboard: list[list[Keyboard]] = [
-            [
-                Keyboard(
-                    text=phrases.PVT_KEY_GO_TO_MESSAGE,
-                    url=get_message_url(game.message_id, game.group_chat),
-                )
-            ]
-        ]
-
     def get_result_text(recipient: User, is_winner: bool) -> str:
         """
         The result for a player, in the language of that player. Winner and loser may each have
@@ -1140,7 +1156,11 @@ async def guess_game_validate_answer(
             f" total_wager_pool={game.wager}, amount_displayed={bet_amount}"
         )
         await send_guess_game_result_message(
-            context, user, get_result_text(user, True), image_path, outbound_keyboard
+            context,
+            user,
+            get_result_text(user, True),
+            image_path,
+            get_go_to_game_message_keyboard(game, user),
         )
     except Exception as e:
         logging.exception(f"Problem while telling the winner of game {game.id} the result")
@@ -1157,7 +1177,11 @@ async def guess_game_validate_answer(
                 f" total_wager_pool={game.wager}, amount_displayed={bet_amount}"
             )
             await send_guess_game_result_message(
-                context, loser, get_result_text(loser, False), image_path, outbound_keyboard
+                context,
+                loser,
+                get_result_text(loser, False),
+                image_path,
+                get_go_to_game_message_keyboard(game, loser),
             )
         except Exception as e:
             logging.exception(f"Problem while telling the loser of game {game.id} the result")
@@ -1267,24 +1291,14 @@ async def end_text_based_game(
     finally:
         set_current_language(player_language)
 
-    outbound_keyboard: list[list[Keyboard]] = []
-
-    if not game.is_global():
-        # Go to game message in group button
-        outbound_keyboard = [
-            [
-                Keyboard(
-                    text=phrases.PVT_KEY_GO_TO_MESSAGE,
-                    url=get_message_url(game.message_id, game.group_chat),
-                )
-            ]
-        ]
-
     # Send message to winner
     await set_user_private_screen(winner, should_reset=True)
     context.application.create_task(
         full_message_send(
-            context, winner_text, chat_id=winner.tg_user_id, keyboard=outbound_keyboard
+            context,
+            winner_text,
+            chat_id=winner.tg_user_id,
+            keyboard=get_go_to_game_message_keyboard(game, winner),
         )
     )
 
@@ -1297,28 +1311,29 @@ async def end_text_based_game(
     await set_user_private_screen(loser, should_reset=True)
     context.application.create_task(
         full_message_send(
-            context, loser_text, chat_id=loser.tg_user_id, keyboard=outbound_keyboard
+            context,
+            loser_text,
+            chat_id=loser.tg_user_id,
+            keyboard=get_go_to_game_message_keyboard(game, loser),
         )
     )
 
-    # Update group message
+    # Update group message, written in the language of the group
     if game.group_chat is not None:
         group_chat: GroupChat = game.group_chat
 
-        if group_text is None:
-            player_language = get_current_language()
-            set_current_language(group_chat.group.get_language())
-            group_text = get_text(game, True, game_outcome=outcome, terminology=terminology)
-            set_current_language(player_language)
+        with using_language(group_chat.group.get_language()):
+            if group_text is None:
+                group_text = get_text(game, True, game_outcome=outcome, terminology=terminology)
 
-        await full_media_send(
-            context,
-            caption=group_text,
-            group_chat=group_chat,
-            edit_message_id=game.message_id,
-            edit_only_caption_and_keyboard=True,
-            ignore_bad_request_exception=True,
-        )
+            await full_media_send(
+                context,
+                caption=group_text,
+                group_chat=group_chat,
+                edit_message_id=game.message_id,
+                edit_only_caption_and_keyboard=True,
+                ignore_bad_request_exception=True,
+            )
 
 
 async def collect_game_wagers_and_set_in_progress(

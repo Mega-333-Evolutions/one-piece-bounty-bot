@@ -2246,13 +2246,14 @@ admin's message has no sender, and the code also copes with the group itself bei
 whether the bot has the "delete messages" right in your group (without it the command stays and
 only the warning is deleted).
 
-## Round 3 (Nov 1 to Nov 7): Who's Who results, Admiral / Legendary Pirate privileges, two players pressing Accept together, Smile ability cap, errors from the logs, Telegram's internal errors, the two rare game-start cases, a negative pending bounty is no longer clamped to 0, symbols in the poster name are ignored, a poster name with Arabic decorations showed only its first letter, a button pressed on a message that had just been deleted was reported as a bug
+## Round 3 (Nov 1 to Nov 7): Who's Who results, Admiral / Legendary Pirate privileges, two players pressing Accept together, Smile ability cap, errors from the logs, Telegram's internal errors, the two rare game-start cases, a negative pending bounty is no longer clamped to 0, symbols in the poster name are ignored, a poster name with Arabic decorations showed only its first letter, a button pressed on a message that had just been deleted was reported as a bug, messages written in the language of the player who caused them instead of the language of the chat they go to
 
-Fourteen things from your messages, each reproduced first on the code of the previous delivery and then
+Fifteen things from your messages, each reproduced first on the code of the previous delivery and then
 fixed. Two of them (1 and 2) turned out to be the same bug, and so did the two errors of Nov 3 and 4
 (7). The two rare cases left over from 4 are fixed in 8, the pending bounty that is no longer
 clamped to 0 is 9, the poster name without spelled-out symbols is 10, the poster name that showed
-only its first letter is 11, and the error about a message that had already been deleted is 12.
+only its first letter is 11, the error about a message that had already been deleted is 12, and the messages that came out
+in the wrong language are 13.
 
 ### 1. Who's Who global challenge: the winner got no "you won", the loser no "you lost"
 
@@ -2618,6 +2619,91 @@ Not changed:
 - If you would rather the player see nothing at all instead of the alert, it is one argument
   (`answer_callback=True`) in two places of `manage_after_db()`.
 
+### 13. Language conflicts: a message was written in the language of the player who caused it, not of the chat it goes to (Nov 7 and 8)
+
+The report: a group that set Persian, a player whose private chat with the bot is English plays a challenge
+and wins it in the group, and the challenge message in the group is edited in English instead of Persian;
+a captain / first mate whose private chat is English gets a join request from a player whose language is
+Persian, and the request they get is in Persian; "these are just examples, there are many more places".
+
+What "right" means here (the rule I applied everywhere): **a message in a group is in the language of the
+group, whoever caused it; a message in a private chat is in the language of the player it is sent to,
+whoever caused it.**
+
+How the languages work: every update is handled in a task of its own, the handler sets the language of that
+task (the player's, then the group's when it came from a group), and every `phrases.X` is read in the
+language of the task at the moment it is used. So a text comes out in the wrong language when it is built in
+the task of somebody else (one player's action writing to the group or to another player), when it is built
+once and sent to several chats, or when it is built when the file is imported (always English).
+
+How I looked for them: not by reading alone. A checker puts an invisible mark on every phrase with the
+language it was written in, and compares every message the bot would send (text, caption and every button)
+with the language stored for the chat it goes to (the player's for a private chat, the group's for a group).
+Then I drove the bot through its own handlers, with players and groups of different languages: `/start` and
+every button of every message it sends (a button on a message sent to another player is pressed by that
+player), the group commands and every button, and every scheduled job once. Two runs, with the languages
+swapped. On the previous delivery that found 1,744 messages in 41 places in the wrong language; the 26
+existing test suites run with random languages found 52 more.
+
+What was wrong, and is now fixed:
+- **The Back, Yes and No buttons were English in every chat that is not English**
+  (`message_service.py`: `get_back_button()` and `get_yes_no_keyboard()`). Their default texts were default
+  arguments, which Python evaluates once, when the file is imported, in English. Every screen that builds one
+  of these buttons without a text of its own (nearly all of them) showed "Back" / "Yes" / "No" in English
+  in a Persian chat. This was by far the most frequent. They are read when the button is built now.
+- **The global challenge - your first example** (`screen_game_global_start_challenger.py`,
+  `screen_game_global_start_opponent.py`). When the challenger starts a challenge as global (a button of the
+  group message, answered in his private chat) and when another player accepts it (private chat too), the
+  bot edits the message of the challenge in the group - and it wrote it in the language of the player in the
+  private chat, buttons included (Accept / Play / Delete). It is now in the language of the group. In the
+  accept screen the same text was also used to edit the opponent's own message of a guess game: that one is
+  now in the opponent's language and the group's in the group's.
+- **Guess games played from a group** (`screen_game_gol.py`, `screen_game_pr.py`,
+  `screen_game_shambles_ww.py`, `game_service.py`). The first message of Guess or Life, Punk Records and
+  Who's Who was built once in the language of the player who pressed the button and sent to both players:
+  each player gets it in his own language now. The "go to the game message" button of the result messages was
+  built once, in the language of the winner, and given to the loser too: one each now. The message in the group
+  at the end of a text based game is in the language of the group.
+- **Predictions** (`group_service.py`, `prediction_service.py`,
+  `screen_prediction_detail_send_to_group_chat.py`). A prediction sent to the groups, "bets are closed", the
+  results, the removal of the bets, and the refresh of the message after a bet were written once, in the
+  language of whoever caused it (a player in a private chat, or English for the jobs), and sent to every
+  group. Each group gets them in its own language now, button included.
+  `broadcast_to_chats_with_feature_enabled()` accepts a function that builds the text (and the keyboard) once
+  per language. The button of the prediction sent to a group by its owner was in the owner's language.
+- **A notification sent in the middle of a handler** (`notification_service.py`: the one for a message
+  deleted because the player is arrested, muted or in the wrong location). It changed the language of the
+  handler to the one of the player and left it there, so what the handler wrote next went out in his language.
+  It is put back.
+- **`using_language()`** (`language_service.py`): sets the language for a block and puts the previous one back
+  when it is left, even when the block fails. All of the above use it. The two places that did the same by
+  hand - the join request and the Davy Back Fight request to a captain (`screen_crew_search_detail_join.py`,
+  `screen_crew_davy_back_fight_request.py`) - use it too: they set the captain's language, sent, and restored
+  it, which any error other than a Telegram one in between would have skipped. What they send is unchanged.
+
+**Your second example, the join request: I could not reproduce it.** I tried every way a captain or a first
+mate is asked: in private chat, the request to the captain from the crew search (manual and automatic
+acceptance, through the real buttons: Join, the confirmation, the captain's Accept) and the same for a Davy
+Back Fight; in a group, `/join` in reply to a member, and the first mate's Accept. With an English captain and
+first mate and a Persian player the request in private chat reaches the captain in English, and the one in a
+group is written in the language of the group, whoever asks and whoever has to accept. That is the same on the
+previous delivery (that part of the code was already there in the version you uploaded), so it is not
+something these changes fixed. What I did find in that flow on the previous delivery is that the player who
+asks saw the confirmation and the answer with English Yes / Back buttons in a Persian chat (the first item).
+If what you saw is the request in the group: it is the group's message, so it follows the language of the
+group, not the private language of the people who have to press it (the same rule as the challenge message).
+If you want the captain and the first mate to also get it in private, in their own language, that is a new
+message, tell me. If it is something else, tell me which message and where it was, and I will trace it.
+
+Not changed:
+- Texts that are not phrases stay as they are: the data from the wiki (names, affiliations, descriptions) is
+  English in every language, error texts written directly in the code (like "Could not get the board, try
+  again"), and the "Posted by" line of the Reddit pictures.
+- A message of a group is in the language of the group even when the person it is meant for chose another
+  for the private chat; there is only one language per message.
+- A text that a player is shown in his own handler (an alert, the answer to his own button) is in his language,
+  as before.
+
 ### On verification
 
 New test files, all driven through the real functions and screens on in-memory SQLite with the
@@ -2648,7 +2734,20 @@ threads at once; the font check failing); `test_round3_gone_message.py` 10 / 28 
 answers "Message to edit not found" for the deleted messages: the report as it came, the game still there,
 an item that is not found, a screen whose own edit finds the message gone, a button of the private chat,
 what must not change - the error on a message that is there, the caption fallback, every other BadRequest -
-and the helpers).
+and the helpers); `test_round3_language.py` 39 / 148 (every phrase marked with the language it was written
+in and every message checked against the language of the chat it goes to, with explicit languages: a global
+challenge of a Persian group between English players - the challenger starting it, the opponent accepting
+it, a Who's Who won in private chat by the English player -, a challenge won in private chat by one player
+and lost by the other with a different language, the first message of the three guess games, a prediction
+sent to a Persian and an English group and its refresh and "bets are closed" from a private chat and from a
+job, a prediction sent to a group by its owner, the join request in private chat and in a group with an
+English captain and first mate and a Persian player - through the real buttons -, the Davy Back Fight request,
+the default Yes / No / Back buttons, and a notification sent in the middle of a handler). The crawl above
+on this version: 0 of 2,772 checked messages in the wrong language (`/start` and every button, the group
+commands and every button, and every job), in both runs; and the 26 suites with random
+languages: the 52 messages are down to 2 kinds, both of them the test's own doing (a test that calls a screen
+without setting the language the handler would have set, and a test that builds an error in English before
+sending it into a Persian group).
 The 15 older suites, `test_anon_admin.py` and the tests of this round above give the same results as before (the
 Crew disband suite was written for an older version of that function and fails on both; one check of
 `test_update_describe.py` that expected the clamp now expects the negative value). **What I could not
@@ -2661,7 +2760,10 @@ often a release is bigger than what is held - the new warning in the log will sh
 exact decoration characters of the name in your screenshot; for 11, that the name in your Telegram
 profile is exactly the text you sent me - I rendered it from that text; for 12, which chat error was being
 shown on the message that was gone and why the message was gone: the report doesn't say, so what I checked is
-that whatever the error and whatever deleted the message, the bot no longer reports it).
+that whatever the error and whatever deleted the message, the bot no longer reports it; for 13, which message
+of a crew join request you saw in Persian - I could not make one appear, in private chat or in a group, with
+the code as it is - and, as everywhere here, the real Telegram: the tests and the crawl check the language of
+what the bot hands to Telegram, not what Telegram shows).
 
 ## Known limitations / things worth knowing
 

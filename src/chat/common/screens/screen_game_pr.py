@@ -25,7 +25,7 @@ from src.service.game_service import (
     guess_game_should_end_after_answer,
 )
 from src.service.message_service import full_message_send, escape_valid_markdown_chars
-from src.service.language_service import get_current_language, set_current_language
+from src.service.language_service import using_language
 
 
 def get_recap_details(
@@ -138,44 +138,54 @@ async def run_game(
     # Get the board
     board: PunkRecords = get_player_board(game, user)
 
-    # If detail can be revealed, add new revealed detail to text
-    recap_text = ""
-    new_detail_text = ""
-    hint_text = ""
-    new_detail = None
     # First iteration, do not reveal new detail or hint
     if not is_first_run:
         issue_hint_if_possible(game, user)
         board: PunkRecords = get_player_board(game, user)
 
-    if board.revealed_letters_count > 0:
-        # Add hint, goes on bottom of text just before time remaining to next hint
-        hint = board.character.name[: board.revealed_letters_count]
-        hint_text = phrases.GUESS_GAME_INPUT_CAPTION_HINT.format(hint)
+    def get_ot_text() -> str:
+        """The text of the message, in the language that is set"""
 
-    # Time remaining text, always after everything else
-    if board.can_reveal_detail():
-        recap_text += phrases.GUESS_GAME_INPUT_CAPTION_SECONDS_TO_NEXT_DETAIL.format(
-            hint_wait_seconds
-        )
-    elif not board.have_revealed_all_letters():
-        recap_text += phrases.GUESS_GAME_INPUT_CAPTION_SECONDS_TO_NEXT_HINT.format(
-            hint_wait_seconds
+        # If detail can be revealed, add new revealed detail to text
+        recap_text = ""
+        new_detail_text = ""
+        hint_text = ""
+        new_detail = None
+
+        if board.revealed_letters_count > 0:
+            # Add hint, goes on bottom of text just before time remaining to next hint
+            hint = board.character.name[: board.revealed_letters_count]
+            hint_text = phrases.GUESS_GAME_INPUT_CAPTION_HINT.format(hint)
+
+        # Time remaining text, always after everything else
+        if board.can_reveal_detail():
+            recap_text += phrases.GUESS_GAME_INPUT_CAPTION_SECONDS_TO_NEXT_DETAIL.format(
+                hint_wait_seconds
+            )
+        elif not board.have_revealed_all_letters():
+            recap_text += phrases.GUESS_GAME_INPUT_CAPTION_SECONDS_TO_NEXT_HINT.format(
+                hint_wait_seconds
+            )
+
+        return new_detail_text + phrases.PUNK_RECORDS_GAME_RECAP.format(
+            get_recap_details(
+                game,
+                user,
+                new_detail,
+                all_details_are_new=is_first_run,
+                add_instructions=True,
+                hint_text=hint_text,
+            ),
+            recap_text,
         )
 
-    ot_text = new_detail_text + phrases.PUNK_RECORDS_GAME_RECAP.format(
-        get_recap_details(
-            game,
-            user,
-            new_detail,
-            all_details_are_new=is_first_run,
-            add_instructions=True,
-            hint_text=hint_text,
-        ),
-        recap_text,
-    )
     for u in users:
-        context.application.create_task(full_message_send(context, ot_text, chat_id=u.tg_user_id))
+        # Everybody reads it in their own language, not in the one of the player (or of the
+        # restarted hint thread) that is running this
+        with using_language(u.get_language()):
+            context.application.create_task(
+                full_message_send(context, get_ot_text(), chat_id=u.tg_user_id)
+            )
 
         # Set private screen for input
         context.application.create_task(set_user_private_screen(u, game))
@@ -236,17 +246,17 @@ async def validate_answer(
     # winner_text/loser_text are shown to two different people (the winner and the loser), who
     # may each have a different language set - so each must be built under that specific
     # person's language, not whichever language happens to be active from this player's own DM
-    player_language = get_current_language()
+    with using_language(user.get_language()):
+        winner_details_text = phrases.PUNK_RECORDS_GAME_RECAP.format(
+            get_recap_details(game, user), ""
+        )
+        winner_text, _ = get_winner_loser_text(game, winner_details_text)
 
-    set_current_language(user.get_language())
-    winner_details_text = phrases.PUNK_RECORDS_GAME_RECAP.format(get_recap_details(game, user), "")
-    winner_text, _ = get_winner_loser_text(game, winner_details_text)
-
-    set_current_language(loser.get_language())
-    loser_details_text = phrases.PUNK_RECORDS_GAME_RECAP.format(get_recap_details(game, user), "")
-    _, loser_text = get_winner_loser_text(game, loser_details_text)
-
-    set_current_language(player_language)
+    with using_language(loser.get_language()):
+        loser_details_text = phrases.PUNK_RECORDS_GAME_RECAP.format(
+            get_recap_details(game, user), ""
+        )
+        _, loser_text = get_winner_loser_text(game, loser_details_text)
 
     await end_text_based_game(context, game, outcome, user, winner_text, loser, loser_text)
 

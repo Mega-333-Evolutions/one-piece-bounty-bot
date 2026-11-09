@@ -17,6 +17,7 @@ from src.service.game_service import (
     collect_game_wagers_and_set_in_progress,
     get_text,
 )
+from src.service.language_service import using_language
 from src.service.message_service import full_message_send, mention_markdown_user, full_media_send
 from src.utils.string_utils import get_belly_formatted
 
@@ -89,36 +90,39 @@ async def manage(
 
     # Edit group message to show that it's now a global challenge, best effort
     if game.group_chat is not None:
-        ot_text = phrases.GAME_REQUEST_OPEN_HEADER.format(
-            mention_markdown_user(game.challenger),
-            game.get_type().get_name(),
-            get_belly_formatted(game.wager),
-            game.get_type().get_description(),
-        )
-        outbound_keyboard: list[list[Keyboard]] = [
-            # Start as global button
-            [
-                Keyboard(
-                    phrases.KEYBOARD_OPTION_ACCEPT,
-                    info={ReservedKeyboardKeys.DEFAULT_PRIMARY_KEY: game.id},
-                    screen=Screen.PVT_GAME_GLOBAL_START_OPPONENT,
-                    is_deeplink=True,
-                )
-            ],
-        ]
-        context.application.create_task(
-            full_media_send(
-                context,
-                caption=ot_text,
-                chat_id=game.group_chat.group.tg_group_id,
-                edit_message_id=game.message_id,
-                keyboard=outbound_keyboard,
-                add_delete_button=True,
-                edit_only_caption_and_keyboard=True,
-                group_chat=game.group_chat,
-                authorized_users=[game.challenger],
+        # The message of the group is in the language of the group, not in the one of the player
+        # that pressed this button in private (the task created inside the block keeps it)
+        with using_language(game.group_chat.group.get_language()):
+            ot_text = phrases.GAME_REQUEST_OPEN_HEADER.format(
+                mention_markdown_user(game.challenger),
+                game.get_type().get_name(),
+                get_belly_formatted(game.wager),
+                game.get_type().get_description(),
             )
-        )
+            outbound_keyboard: list[list[Keyboard]] = [
+                # Start as global button
+                [
+                    Keyboard(
+                        phrases.KEYBOARD_OPTION_ACCEPT,
+                        info={ReservedKeyboardKeys.DEFAULT_PRIMARY_KEY: game.id},
+                        screen=Screen.PVT_GAME_GLOBAL_START_OPPONENT,
+                        is_deeplink=True,
+                    )
+                ],
+            ]
+            context.application.create_task(
+                full_media_send(
+                    context,
+                    caption=ot_text,
+                    chat_id=game.group_chat.group.tg_group_id,
+                    edit_message_id=game.message_id,
+                    keyboard=outbound_keyboard,
+                    add_delete_button=True,
+                    edit_only_caption_and_keyboard=True,
+                    group_chat=game.group_chat,
+                    authorized_users=[game.challenger],
+                )
+            )
     # If global and guess based started in private, edit that message too
     elif game.is_global() and game.is_guess_based():
         ot_text = get_text(game, False, is_for_group_global=True)
