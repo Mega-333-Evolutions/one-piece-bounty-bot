@@ -2851,6 +2851,101 @@ results as before. **What I could not verify:** the real Telegram and the live d
 what the bot builds and sends, with the project's word and character files; and the value of
 `GAME_MAX_TOTAL_WAGER_EASY` / `GAME_MAX_TOTAL_WAGER_MEDIUM` on your server (the sentence above).
 
+## Round 5 (Nov 10): a global Rock Paper Scissors / Russian Roulette ended with "This game has ended" when the second player was slower than the first one
+
+What you reported, only for **global** challenges (the non global ones were fine): Player A starts a Rock
+Paper Scissors or Russian Roulette challenge in the bot's private chat and finishes his turn; Player B
+accepts it in his private chat; when B makes his move (a choice, a chamber) the bot sometimes says "This game
+has ended". The logs then show B as the loser and A as the winner, the challenge message is not updated, the
+chamber is not revealed (bullet or not) and A gets no notification. It did not happen every time. You never
+let the minute of the automatic move pass. You saw it when B was about to win, and also when A had 3/7 points
+and B was about to get his first point. Then you found it yourself: it happens when the second player takes
+longer than the first player took.
+
+### What was wrong
+
+The four guess games (Shambles, Who's Who, Guess or Life, Punk Records) are played against the clock: when the
+challenger has finished, the opponent has as much time as the challenger took, and if he is still playing
+when it runs out the challenger wins. That limit is started in two places. When the challenger finishes
+(`end_global_game_player`) it is started for the guess games only. When the opponent presses Accept
+(`dispatch_game`) it was started for **every** type of game, and the two functions of the limit
+(`timeout_opponent_guess_game`, `enqueue_timeout_opponent_guess_game`) did not look at the type either. So in
+Rock Paper Scissors and Russian Roulette the Accept of B started a timer of "the time A took", where A's time
+is from the start of his game to his last move: one tap in Rock Paper Scissors, all the shots up to the bullet
+in Russian Roulette.
+
+When it ran out, the game was ended in the database as a win of the challenger and nothing else happened:
+the pot went to A (B lost his stake), and nothing was sent - no change of B's message, no reveal, and no
+notification for A (the outcome notification of that path is only sent for the guess games). B's next tap
+then met a finished game: "This game has ended". On the previous delivery, in my test (A took 2 seconds, B
+had not moved 3 seconds after accepting), the game was already a win of A: A +10,000,000, B -10,000,000, and
+no message to anybody.
+
+That is why it was not every time, and why it looked as if it depended on B being about to win. In Rock Paper
+Scissors B has to tap within the seconds A needed for his one tap. In Russian Roulette B has to do all his
+shots in the time A needed for his, and to win he needs more safe chambers than A, so when he is about to win
+he is almost always slower than A. It also hits B's first shot when A was fast (your second example). It has
+nothing to do with the move itself or with the automatic move of one minute. It is the same in the original
+PTB code (`dispatch_game` has the same call there; `restart_hint_thread_if_down`, called right after it,
+already skips the games that are not guess games).
+
+### The fix (`src/service/game_service.py`, `src/chat/common/screens/screen_game_manage.py`)
+
+- `timeout_opponent_guess_game` returns False and `enqueue_timeout_opponent_guess_game` returns at once for a
+  game that is not a guess game;
+- `dispatch_game` does not start the limit for it any more (the repeated `if game.is_opponent(user)` inside
+  the condition is gone).
+
+Now Rock Paper Scissors is decided by the two choices and Russian Roulette by the points, with no timer, as you
+said. The guess games keep their rule exactly as it was. What is left for a player who goes away is what was
+already there and is not changed: after one minute without a choice the worst move is made automatically
+(`GAME_TURN_AUTO_MOVE_TIME_SECONDS`), and the job that ends the inactive games.
+
+### Games that this bug had already ended
+
+They stay as they are: A got the pot and B lost his stake, without a message. If you want to look at them
+(whether to give anything back is your decision), these are the global Rock Paper Scissors / Russian Roulette
+games that A won and in which B never finished his turn - which is what the time limit left behind, a normal
+loss of B always records the end of his turn:
+
+```sql
+SELECT id, challenger_id, opponent_id, type, wager, global_opponent_start_date
+FROM game
+WHERE type IN (1, 2) AND status = 1 AND opponent_id IS NOT NULL
+  AND global_challenger_start_date IS NOT NULL AND global_opponent_end_date IS NULL;
+```
+
+(`type` 1 = Rock Paper Scissors, 2 = Russian Roulette; `status` 1 = won by the challenger; `wager` is the pot of
+both players, so B lost half of it.) In the test database it finds exactly the games the time limit ended and
+none of the games B lost with a move. **I could not run it on your database**: the column names are those of
+the model, nothing more.
+
+### Verification (`test_round5_global_rps_rr.py`, 82 checks; 42 fail on the previous delivery, all pass now)
+
+The real chain of round 4 (`manage()`, the private chat manager, the real screens of the game selection, the
+challenger's start, the opponent's Accept, Rock Paper Scissors and Russian Roulette, real peewee models on
+SQLite) with the **real timers** (real seconds); only Telegram is replaced. A takes 2 seconds, B moves 0.5
+seconds after accepting (inside A's time) or 3 seconds after (after it):
+- Rock Paper Scissors: B faster and wins; B slower and wins, loses, draws; A very fast (under one second); the
+  challenge started in a group with "Start as global"; B accepts and does nothing for 3.5 seconds (the game
+  must stay in progress).
+- Russian Roulette: your second example (A has 3/7, B's first shot comes after A's time); B wins 3 to 2 with
+  the last shot after A's time; B shoots the bullet after A's time; a draw; B quick; B does nothing.
+- For every game that ends: the right result, B is not told "This game has ended", B sees what he chose or
+  the chamber ("You've survived another round" / "You've died"), B's message shows the result, A gets exactly
+  one notification, nothing fails.
+- On the previous delivery everything with a slow B fails in the way you describe (the game is a win of A,
+  B's tap is answered "This game has ended", no change of the message, no notification); with a quick B it
+  passes. Now all pass. The four guess games are in the same test: B still has time while A's time has not
+  run out, and A wins on time after it, with A notified - unchanged.
+
+The 16 older suites, the 10 tests of round 3, the language test and the difficulty test of the previous
+delivery give the same results as before (only the old `test_crew_disband` fails, as before).
+**What I could not verify:** the real Telegram and your database (the tests check what the bot saves and sends,
+and use short times - A = 2 seconds - with the real timers). A global Rock Paper Scissors / Russian Roulette
+that is in progress when you update does not keep its timer: the timers live in the bot's memory and are gone
+when it restarts.
+
 ## Known limitations / things worth knowing
 
 A few places where Telethon's model doesn't map 1:1 onto Bot API's, in order

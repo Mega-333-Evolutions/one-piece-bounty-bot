@@ -132,10 +132,16 @@ async def dispatch_game(
     :return: None
     """
     # Opponent just started, enqueue timeout if challenger has already finished. In case they have not
-    # the timeout will be enqueued when they do
-    if game.is_global() and should_start_immediately and game.is_opponent(user):
-        if game.is_opponent(user):
-            context.application.create_task(enqueue_timeout_opponent_guess_game(context, game))
+    # the timeout will be enqueued when they do. Only the guess games are played against the clock:
+    # Rock Paper Scissors and Russian Roulette are decided by what the players choose and score,
+    # however long the opponent takes
+    if (
+        game.is_global()
+        and game.is_guess_based()
+        and should_start_immediately
+        and game.is_opponent(user)
+    ):
+        context.application.create_task(enqueue_timeout_opponent_guess_game(context, game))
 
     context.application.create_task(restart_hint_thread_if_down(context, game, user=user))
 

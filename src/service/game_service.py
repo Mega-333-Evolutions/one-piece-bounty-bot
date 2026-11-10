@@ -1664,13 +1664,19 @@ async def edit_other_player_message(
 async def timeout_opponent_guess_game(context: ContextTypes.DEFAULT_TYPE, game: Game) -> bool:
     """
     Check if opponent has timed out for guessing. If so, end game giving challenger the win.
-    In case this method returns False, every caller should exit, since it handles everything
+    In case this method returns False, every caller should exit, since it handles everything.
+    Only the guess games are played against the clock. Rock Paper Scissors and Russian Roulette
+    are decided by what the players choose and score, however long the opponent takes: for them
+    this always returns False
     :param context: The context
     :param game: The game
     :return: Whether the opponent has timed out
     """
 
     if not game.is_global():
+        return False
+
+    if not game.is_guess_based():
         return False
 
     # Game already ended, no further action needed
@@ -1704,7 +1710,8 @@ async def enqueue_timeout_opponent_guess_game(
     :return: None
     """
 
-    if not game.is_global():
+    # Rock Paper Scissors and Russian Roulette have no time limit for the opponent
+    if not game.is_global() or not game.is_guess_based():
         return
 
     if game.is_finished():
