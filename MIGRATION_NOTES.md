@@ -2765,6 +2765,92 @@ of a crew join request you saw in Persian - I could not make one appear, in priv
 the code as it is - and, as everywhere here, the real Telegram: the tests and the crawl check the language of
 what the bot hands to Telegram, not what Telegram shows).
 
+## Round 4 (Nov 9): the difficulty of a challenge now follows the stake of each player, also in a global challenge (`/challenge 26m` in the private chat was Easy)
+
+The rule you gave: the challenger challenging up to 25m (25,000,000) is **easy**, more than 25m and up to
+100m (100,000,000) is **medium**, more than 100m is **hard**; it has to hold in Shambles, Who's Who, Guess or
+Life and Punk Records, in global and in non global challenges. Then, after the first look: "I just did
+`/challenge 26m` in the bot's private chat, selected Guess or Life and it showed Easy, but above 25m and
+below 100,000,001 it should be Medium".
+
+### What was wrong
+
+Every game takes its difficulty from one place, `Game.get_difficulty()` (the "Difficulty:" line of the text,
+the size of the Shambles grid, the character of Who's Who and of Punk Records, the word of Guess or Life -
+nothing else in the code reads the amount). It compared `game.wager` with two limits, `GAME_MAX_TOTAL_WAGER_EASY`
+(50,000,000) and `GAME_MAX_TOTAL_WAGER_MEDIUM` (200,000,000): limits of the **total** wager, the money of
+both players, which is 25m and 100m for each player, so your rule exactly.
+
+But `game.wager` is the total only after the opponent has paid. Until then it is the stake of one player: a
+challenge waiting for its opponent, and a **global challenge**, which the challenger plays before there is an
+opponent (everything done in the private chat is global). So in a global challenge the stake of the
+challenger was compared with the limits of the total, as if the other player had put in nothing:
+
+| stake of each player | the rule | global challenge before this change | non global |
+|---|---|---|---|
+| up to 25,000,000 | Easy | Easy | Easy |
+| 25,000,001 to 50,000,000 | **Medium** | **Easy** | Medium |
+| 50,000,001 to 100,000,000 | Medium | Medium | Medium |
+| 100,000,001 to 200,000,000 | **Hard** | **Medium** | Hard |
+| more than 200,000,000 | Hard | Hard | Hard |
+
+It was not only the text. The board of a global challenge is built when the challenger starts it and is the
+same one for both players, so the challenger's stake decided the board that both of them played (an Easy
+word, character or grid for a 26m challenge). And when another player accepted, the wager became the total,
+the text started saying Medium, and the board stayed Easy: the text and the game did not agree. The same
+numbers were wrong in the four games, and the same since the original PTB code (the PTB code has the same
+two lines). Non global challenges were already right: the opponent has paid before the board is built.
+
+### The fix (`src/model/Game.py`, one method added, one changed)
+
+`Game.get_total_wager()` says what both players have put in: the wager doubled while the opponent has not
+paid (no opponent yet, or the status says no wager was collected, which is also the case of a challenge
+to a chosen player that was not accepted yet), the wager as it is afterwards. `get_difficulty()` uses it. So
+the difficulty is the one of the stake of each player at every moment of the game, before and after the
+opponent joins, and the text always agrees with the board.
+
+The limits are still the two variables `GAME_MAX_TOTAL_WAGER_EASY` and `GAME_MAX_TOTAL_WAGER_MEDIUM`; with
+their defaults (50,000,000 and 200,000,000, twice 25m and 100m) it is your rule to the unit: 25,000,000 is
+Easy, 25,000,001 is Medium, 100,000,000 is Medium, 100,000,001 is Hard. If you set either variable on the
+server to another number, the rule follows that number, not the one above (I can't see the server's
+variables).
+
+Not changed: the wager the text shows is still what the winner takes (both stakes once the opponent has
+joined, the stake of the challenger before: a 26m global challenge says 26,000,000 and, once accepted,
+52,000,000); and a global challenge that was started before this version and has not been accepted yet keeps
+the board it was built with (the old rule) while its text now shows the new difficulty, until it is accepted
+or it expires.
+
+### Verification (`test_round4_difficulty.py`, 98 checks; 33 fail on the previous delivery, all pass now)
+
+Driven through the real chain (`manage()`, the group and private chat managers, the real screens of the
+Accept button, "Start as global", the opponent's Accept and the selection of the game, the real building of
+each board from the bundled wiki files, real peewee models on SQLite); only Telegram, the download of the
+Who's Who picture and the part of the game that runs for minutes after the board exists are replaced:
+- every game (Who's Who, Punk Records, Shambles, Guess or Life) x 10 stakes (5m, 25m, 25,000,001, 30m, 50m,
+  100m, 100,000,001, 150m, 200m, 250m) x four ways of making a challenge (open challenge accepted in a
+  group, challenge to a chosen player, global from a group, global from the private chat): the difficulty the
+  board was really built with (the character's difficulty, the grid size, the number of different letters of
+  the word), the "Difficulty:" of the game's text, and every "Difficulty:" sent to Telegram, compared with
+  the rule written separately in the test. On the previous delivery 20 of these checks fail, all of them
+  in the two kinds of global challenge, in every game, and only at the six stakes that are in the two ranges
+  of the table (25,000,001, 30m, 50m, 100,000,001, 150m, 200m): the board was wrong both when the challenger
+  started the game and after the opponent had accepted (it is never rebuilt), and the text was wrong until
+  the opponent accepted. The two non global kinds pass on the previous delivery as well.
+- `Game.get_difficulty()` on 272 rows (17 stakes x 8 statuses x with and without opponent, the wager stored
+  as the game stores it in each state): 70 wrong before (all of them rows where the wager is one stake), all
+  right now.
+- the case you reported, typed as you did (`/challenge 26m` in the private chat, then the Guess or Life
+  button of the list the bot sends): Easy and an Easy word before, Medium now, and still Medium after another
+  player accepts; also 25m (Easy), 25,000,001 (Medium), 100m, `0.1b` (Medium), 101m and 100,000,001 (Hard),
+  500m (Hard).
+- the amounts `25m`, `25,000,000`, `100m`, `0.1b`, `0.025b`, `1.5b`... become exactly those numbers.
+
+The 16 older suites, the 10 tests of round 3 and the language test of the previous delivery give the same
+results as before. **What I could not verify:** the real Telegram and the live database - the tests check
+what the bot builds and sends, with the project's word and character files; and the value of
+`GAME_MAX_TOTAL_WAGER_EASY` / `GAME_MAX_TOTAL_WAGER_MEDIUM` on your server (the sentence above).
+
 ## Known limitations / things worth knowing
 
 A few places where Telethon's model doesn't map 1:1 onto Bot API's, in order

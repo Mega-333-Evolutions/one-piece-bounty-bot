@@ -81,13 +81,34 @@ class Game(BaseModel):
         """
         return GameType(self.type).get_saved_media_name()
 
+    def get_total_wager(self) -> int:
+        """
+        Get the total wager: what both players put in, which is what the winner takes.
+        The wager of the game is only the stake of ONE player until the opponent has paid his: while
+        a challenge waits for its opponent, and while a global challenge has not been accepted yet
+        (the challenger plays it before there is an opponent). From the moment the opponent has paid
+        (collect_game_wagers_and_set_in_progress) it is the total of both stakes
+        :return: The total wager
+        """
+
+        wager: int = int(str(self.wager))
+
+        if self.opponent_id is None or self.get_status().no_wager_was_collected():
+            return wager * 2
+
+        return wager
+
     def get_difficulty(self) -> GameDifficulty:
         """
-        Get the difficulty level of the game
+        Get the difficulty level of the game, from the stake of each player: up to 25 million is
+        easy, up to 100 million is medium, more than that is hard (the limits are the ones of
+        the total wager, twice as much, see GAME_MAX_TOTAL_WAGER_EASY/MEDIUM).
+        It doesn't depend on the opponent having joined: a global challenge is played by the
+        challenger before that, and the wager that is saved then is one stake and not the total
         :return: The difficulty level
         """
 
-        return GameDifficulty.get_from_total_wager(int(str(self.wager)))
+        return GameDifficulty.get_from_total_wager(self.get_total_wager())
 
     def get_name(self) -> str:
         """
