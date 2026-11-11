@@ -4,6 +4,7 @@ from src.tg_compat.ext import ContextTypes
 import resources.phrases as phrases
 from src.model.Crew import Crew
 from src.model.User import User
+from src.model.enums.ButtonStyle import ButtonStyle
 from src.model.enums.ReservedKeyboardKeys import ReservedKeyboardKeys
 from src.model.enums.Screen import Screen
 from src.model.pojo.Keyboard import Keyboard
@@ -38,12 +39,24 @@ async def manage(
 
         # Members button
         inline_keyboard.append(
-            [Keyboard(phrases.PVT_KEY_CREW_MEMBERS, screen=Screen.PVT_CREW_MEMBER)]
+            [
+                Keyboard(
+                    phrases.PVT_KEY_CREW_MEMBERS,
+                    screen=Screen.PVT_CREW_MEMBER,
+                    style=ButtonStyle.PRIMARY,
+                )
+            ]
         )
 
         # Powerup button
         inline_keyboard.append(
-            [Keyboard(phrases.PVT_KEY_CREW_POWERUP, screen=Screen.PVT_CREW_POWERUP)]
+            [
+                Keyboard(
+                    phrases.PVT_KEY_CREW_POWERUP,
+                    screen=Screen.PVT_CREW_POWERUP,
+                    style=ButtonStyle.SUCCESS,
+                )
+            ]
         )
 
         # Davy back fight button
@@ -56,7 +69,13 @@ async def manage(
         )
 
         # Modify button
-        inline_keyboard.append([Keyboard(phrases.KEY_MODIFY, screen=Screen.PVT_CREW_MODIFY)])
+        inline_keyboard.append(
+            [
+                Keyboard(
+                    phrases.KEY_MODIFY, screen=Screen.PVT_CREW_MODIFY, style=ButtonStyle.PRIMARY
+                )
+            ]
+        )
 
         # Leave crew button
         if not user.is_crew_captain():
@@ -65,7 +84,15 @@ async def manage(
             )
 
     # Search button
-    inline_keyboard.append([Keyboard(phrases.PVT_KEY_CREW_SEARCH, screen=Screen.PVT_CREW_SEARCH)])
+    inline_keyboard.append(
+        [
+            Keyboard(
+                phrases.PVT_KEY_CREW_SEARCH,
+                screen=Screen.PVT_CREW_SEARCH,
+                style=ButtonStyle.SUCCESS,
+            )
+        ]
+    )
 
     await full_message_send(
         context,

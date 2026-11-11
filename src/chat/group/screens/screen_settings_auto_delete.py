@@ -4,6 +4,7 @@ from src.tg_compat.ext import ContextTypes
 import resources.Environment as Env
 import resources.phrases as phrases
 from src.model.GroupChat import GroupChat
+from src.model.enums.ButtonStyle import ButtonStyle
 from src.model.enums.Emoji import Emoji
 from src.model.enums.ReservedKeyboardKeys import ReservedKeyboardKeys
 from src.model.pojo.Keyboard import Keyboard
@@ -33,11 +34,13 @@ async def manage(
         group_chat.save()
 
     current_value = group_chat.auto_delete_duration
-    # Create numeric keyboard with all possible values
+    # Create numeric keyboard with all possible values. The selected one is green, the others
+    # have no colour
     numeric_keyboard: list[list[Keyboard]] = get_options_keyboard(
         inbound_info=inbound_keyboard.info,
         values=Env.AUTO_DELETE_DURATION_VALUES.get_list(),
         current_selected=current_value,
+        current_selected_style=ButtonStyle.SUCCESS,
     )
 
     # Add "Never" option as first option
@@ -48,6 +51,7 @@ async def manage(
                 (Emoji.RADIO_BUTTON if current_value is None else "") + phrases.TEXT_NEVER,
                 info={ReservedKeyboardKeys.DEFAULT_PRIMARY_KEY: None},
                 inbound_info=inbound_keyboard.info,
+                style=ButtonStyle.SUCCESS if current_value is None else None,
             )
         ],
     )

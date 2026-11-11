@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta
+
 from src.tg_compat import Update
 from src.tg_compat.ext import ContextTypes
 
@@ -5,6 +7,7 @@ import resources.phrases as phrases
 from src.model.Crew import Crew
 from src.model.CrewMemberChestContribution import CrewMemberChestContribution
 from src.model.User import User
+from src.model.enums.ButtonStyle import ButtonStyle
 from src.model.enums.ListPage import ListPage
 from src.model.enums.ReservedKeyboardKeys import ReservedKeyboardKeys
 from src.model.enums.Screen import Screen
@@ -15,6 +18,9 @@ from src.service.date_service import default_date_format, get_remaining_duration
 from src.service.list_service import get_items_text_keyboard
 from src.service.message_service import full_message_send, mention_markdown_user
 from src.utils.string_utils import get_belly_formatted
+
+# A member whose last activity was more than this many days ago is shown as inactive
+CREW_MEMBER_INACTIVE_AFTER_DAYS = 2
 
 
 class CrewMemberListPage(ListPage):
@@ -43,6 +49,47 @@ class CrewMemberListPage(ListPage):
         return ot_text + phrases.CREW_MEMBER_ITEM_ROLE.format(
             self.object.get_crew_role_description()
         )
+
+    def is_inactive(self, member: User) -> bool:
+        """
+        A member is inactive when their last activity was more than
+        CREW_MEMBER_INACTIVE_AFTER_DAYS days ago, or when there is no record of any activity.
+        The user who is looking at the list is active at this very moment.
+
+        :param member: The member
+        :return: True if the member is inactive
+        """
+
+        if member == self.user:
+            return False
+
+        if member.last_system_interaction_date is None:
+            return True
+
+        last_activity_date = member.last_system_interaction_date.replace(tzinfo=None)
+        inactive_after = timedelta(days=CREW_MEMBER_INACTIVE_AFTER_DAYS)
+        return datetime.now() - last_activity_date > inactive_after
+
+    def get_item_button_style(self) -> ButtonStyle | None:
+        """
+        Get the style of the number button of the current member:
+        - Red: the member is inactive, or is a conscript
+        - Green: the member has the Crew MVP bonus
+        - Blue: any other (active) member
+        A member who is both (e.g. an inactive MVP) is red.
+
+        :return: The style
+        """
+
+        member: User = self.object
+
+        if member.get_crew_role() is CrewRole.CONSCRIPT or self.is_inactive(member):
+            return ButtonStyle.DANGER
+
+        if member.has_crew_mvp_bonus():
+            return ButtonStyle.SUCCESS
+
+        return ButtonStyle.PRIMARY
 
     def get_item_detail_text(self) -> str:
         super().get_item_detail_text()

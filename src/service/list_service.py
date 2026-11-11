@@ -7,6 +7,7 @@ import constants as c
 import resources.phrases as phrases
 from src.model.BaseModel import BaseModel
 from src.model.User import User
+from src.model.enums.ButtonStyle import ButtonStyle
 from src.model.enums.ContextDataKey import ContextDataKey
 from src.model.enums.Emoji import Emoji
 from src.model.enums.ListPage import ListPage, ListFilter, ListFilterType
@@ -441,6 +442,7 @@ def get_options_keyboard(
     end_number: int = None,
     is_numeric_values: int = True,
     current_selected: str | int = None,
+    current_selected_style: ButtonStyle = None,
 ) -> list[list[Keyboard]]:
     """
     Get the options keyboard
@@ -454,6 +456,8 @@ def get_options_keyboard(
     :param end_number: The end number
     :param is_numeric_values: Whether the values are numeric
     :param current_selected: The current selected value
+    :param current_selected_style: The style of the button of the current selected value. The
+    other buttons are not styled
     :return: The numeric keyboard
     """
 
@@ -472,14 +476,17 @@ def get_options_keyboard(
     for i in values:
         button_info = {primary_key: int(i) if is_numeric_values else i}
         text = str(i)
+        style = None
         if current_selected is not None and str(i) == str(current_selected):
             text = f"{Emoji.RADIO_BUTTON}{text}"
+            style = current_selected_style
         line_keyboard.append(
             Keyboard(
                 text,
                 info=button_info,
                 inbound_info=inbound_info,
                 exclude_key_from_inbound_info=exclude_key_from_inbound_info,
+                style=style,
             )
         )
         if len(line_keyboard) == row_size:

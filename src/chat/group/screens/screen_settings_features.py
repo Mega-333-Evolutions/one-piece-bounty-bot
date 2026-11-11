@@ -8,6 +8,7 @@ import resources.phrases as phrases
 from src.model.GroupChat import GroupChat
 from src.model.GroupChatEnabledDisabledFeature import GroupChatEnabledDisabledFeature
 from src.model.GroupChatEnabledFeaturePin import GroupChatEnabledFeaturePin
+from src.model.enums.ButtonStyle import ButtonStyle
 from src.model.enums.Emoji import Emoji
 from src.model.enums.Feature import Feature
 from src.model.enums.ReservedKeyboardKeys import ReservedKeyboardKeys
@@ -171,10 +172,13 @@ def get_features_keyboard(group_chat: GroupChat) -> list[list[Keyboard]]:
             FeaturesReservedKeys.FEATURE: feature.value,
             ReservedKeyboardKeys.TOGGLE: not is_enabled_feature,
         }
+        # Enabled feature in green, disabled feature in red. Set explicitly: without it the colour
+        # would come from the feature's name (a feature called "Fight" would always be red)
         button: Keyboard = Keyboard(
             f"{emoji} {feature.get_description()}",
             info=button_info,
             screen=Screen.GRP_SETTINGS_FEATURES,
+            style=ButtonStyle.SUCCESS if is_enabled_feature else ButtonStyle.DANGER,
         )
 
         # If feature is pinnable, add button in a new row with the pin toggle button
@@ -193,10 +197,12 @@ def get_features_keyboard(group_chat: GroupChat) -> list[list[Keyboard]]:
                 FeaturesReservedKeys.FEATURE: feature.value,
                 FeaturesReservedKeys.PIN_TOGGLE: not is_enabled_pin,
             }
+            # Pin enabled in green, not enabled in red
             pin_toggle: Keyboard = Keyboard(
                 f"{is_enabled_emoji} {Emoji.PIN}",
                 info=pin_button_info,
                 screen=Screen.GRP_SETTINGS_FEATURES,
+                style=ButtonStyle.SUCCESS if is_enabled_pin else ButtonStyle.DANGER,
             )
 
             # Relative feature button and pin button in the same new row

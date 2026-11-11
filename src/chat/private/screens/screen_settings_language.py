@@ -3,6 +3,7 @@ from src.tg_compat.ext import ContextTypes
 
 import resources.phrases as phrases
 from src.model.User import User
+from src.model.enums.ButtonStyle import ButtonStyle
 from src.model.enums.Language import Language
 from src.model.enums.Screen import Screen
 from src.model.pojo.Keyboard import Keyboard
@@ -44,6 +45,8 @@ async def manage(
                     button_text,
                     screen=Screen.PVT_SETTINGS_LANGUAGE,
                     info={LanguageReservedKeys.LANGUAGE: language.value},
+                    # The selected language is green, the others have no colour
+                    style=ButtonStyle.SUCCESS if is_current else None,
                 )
             ]
         )

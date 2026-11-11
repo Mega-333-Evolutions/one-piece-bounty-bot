@@ -2946,6 +2946,92 @@ and use short times - A = 2 seconds - with the real timers). A global Rock Paper
 that is in progress when you update does not keep its timer: the timers live in the bot's memory and are gone
 when it restarts.
 
+## Round 6 (Nov 11): button colours on the group settings, the language screens, the crew screen and the crew members
+
+What you asked (Telegram's button colours: success = green, danger = red, primary = blue, "colourless" = none):
+
+- Group `/settings` > Features: an enabled feature green, a disabled feature red. The 📌 button next to a
+  pinnable feature: green when the pin is enabled, red when it is not.
+- Group `/settings` > Auto delete: the selected button green (e.g. "Never" when that is the setting), the others
+  colourless.
+- Language: the selected language green, the others colourless.
+- Crew: Members blue, Power-up green, Modify blue, Search green. Davy Back Fight stays red and Back stays blue.
+- Crew > Members (the numbers): MVP crew members green; players inactive for more than 2 days red; a conscripted
+  member red; an active member who is not MVP blue.
+
+### How the colour of a button is decided
+
+`Keyboard(..., style=ButtonStyle.X)` sets it. Without `style`, `Keyboard` guesses it from the **text** of the
+button (`src/utils/button_style_utils.py`: words such as Fight, Plunder, Close are red, Back is blue, Yes and
+Accept are green). That is why, before this change, the features "Fight" and "Plunder" were red even when they
+were enabled: nobody had given the feature buttons a colour, so their names decided. Now the state decides.
+"Colourless" is `style=None` (= guess from the text), which is no colour for the texts of these screens (Never,
+1 ... 360, English, فارسی); the test checks it in both languages.
+
+### The change
+
+- `src/chat/group/screens/screen_settings_features.py`: the feature button is green when the feature is enabled
+  and red when it is disabled; the pin button is green when the pin is enabled and red when it is not.
+- `src/service/list_service.py`, `src/chat/group/screens/screen_settings_auto_delete.py`: `get_options_keyboard`
+  has a new optional `current_selected_style`. It is empty by default, so the Davy Back Fight request screen,
+  which uses the same function, is exactly as before. The auto delete screen passes green; the "Never" button
+  (built in the screen) is green when it is the setting.
+- `src/chat/group/screens/screen_settings_language.py`, `src/chat/private/screens/screen_settings_language.py`:
+  the selected language is green. You showed the group screen; the language screen of the private chat is the
+  same screen, so it follows the same rule.
+- `src/chat/private/screens/screen_crew.py`: Members blue, Power-up green, Modify blue, Search green. Davy Back
+  Fight and Back are not touched (red and blue, as before). "Leave" (members who are not the captain) and
+  "Create" (players without a crew) were not in your list and stay colourless. Search is green also for a
+  player without a crew (it is the same button).
+- `src/chat/private/screens/screen_crew_member.py`: the number buttons. `CrewMemberListPage` now has
+  `get_item_button_style()` (the hook that the list screens already had for the Log pages): red when the member
+  is a conscript or is inactive, else green when the member has the Crew MVP bonus, else blue.
+
+### Decisions on what your list did not say
+
+- **"MVP" is the bot's own rule** (`has_crew_mvp_bonus()`, the same one the member's detail shows as MVP Yes/No):
+  a bounty above the crew's average and no bounty gain limitation. A member who is above the average but whose
+  bounty gain is limited is not an MVP, so he is blue.
+- **A member who is both red and green** (an inactive MVP, a conscripted MVP) is **red**: the point of the red
+  is to see who is inactive or conscripted, and a high bounty is the usual reason for an MVP to be green. If you
+  prefer green to win, swap the two checks in `get_item_button_style` (4 lines).
+- **"Inactive for more than 2 days"**: the member's last activity (`last_system_interaction_date`, the date that
+  the detail screen shows) is older than 2 days (`CREW_MEMBER_INACTIVE_AFTER_DAYS` at the top of the file), or
+  there is no date at all. No date counts as inactive because that is how the bot itself reads it
+  (`get_active_interactive_users` does not return a player without a date). The player who is looking at the
+  list counts as active: he is using the bot at that very moment, while his own date is saved only after the
+  screen is built and could still be from his previous visit.
+- The numbers of the second page and later get their colours like the first one (tested with 12 members).
+
+### Tested
+
+`test_round6_button_colours.py` (not delivered), through the real chain (`manage()`, the group and private chat
+managers, the real screens, real peewee models on SQLite): every button of the message that the screen sends is
+read twice - the compat button that goes to the Telegram layer and the Telethon button that
+`src/tg_compat/_keyboard.py` builds from it - and both must say the same.
+- Features: a new group (all enabled), then Challenge, Fight and Plunder disabled with the real buttons, Fight
+  enabled again; both pin buttons switched on and off. After every press the whole keyboard is checked (the
+  oracle is the ✅ / ☑ and the 🔘 that the player sees): enabled green, disabled red, pin on green, pin off red.
+  "Fight" and "Plunder" are green when enabled and red when disabled.
+- Auto delete: each of the 10 settings in English and in Persian (one green, nine colourless), and pressing
+  another option moves the green. `get_options_keyboard` without the new argument: no colour at all.
+- Language: both languages selected in turn, in the group and in the private chat; pressing the other language
+  moves the green.
+- Crew: captain, first mate, conscript and a player without a crew, in English and in Persian, and reached from
+  /start (Back blue, Davy Back Fight red, Leave and Create unchanged).
+- Members: a crew of 12 with every case (MVP active, MVP inactive, MVP conscript, conscript, inactive 3 days,
+  last seen 1 day 23 h 55 min ago and 2 days 5 min ago, no date at all, the looking player inactive, second
+  page), seen by the captain and by the first mate; a member above the average whose bounty gain is limited.
+- On the previous delivery 99 of its 245 checks fail (no colour on any of the five screens; "Fight" and
+  "Plunder" red when enabled); now all pass.
+
+The 16 older suites, the 10 tests of round 3, the language test, the difficulty test and the Rock Paper
+Scissors / Russian Roulette test of the previous delivery give the same results as before (only the old
+`test_crew_disband` fails, as before).
+**What I could not verify:** how the colours look in your Telegram app. They reach Telegram through the same
+`_with_style` as the colours that were already in the bot; if the Telethon of the server does not know button
+colours it logs a warning and sends the buttons without colour, as it always did.
+
 ## Known limitations / things worth knowing
 
 A few places where Telethon's model doesn't map 1:1 onto Bot API's, in order
