@@ -52,12 +52,20 @@ class LeaderboardUser(BaseModel):
         return: The highest rank attained
         """
 
+        from src.model.enums.LeaderboardRank import LeaderboardRankIndex
+
+        # The lower the rank index, the higher the rank, except for Rookie: its index (5) is lower
+        # than the ones of Admiral, Legendary Pirate and Warlord (6, 7, 8), but it is the lowest
+        # rank there is. A player who lost one of those ranks is left with a Rookie entry in the
+        # leaderboard, which must not count as the highest rank he attained
+        is_rookie = Case(None, [(LeaderboardUser.rank_index == LeaderboardRankIndex.ROOKIE, 1)], 0)
+
         return (
             LeaderboardUser()
             .select()
             .join(Leaderboard)
             .where((LeaderboardUser.user == user) & (Leaderboard.group.is_null()))
-            .order_by(LeaderboardUser.rank_index.asc())
+            .order_by(is_rookie.asc(), LeaderboardUser.rank_index.asc())
             .first()
         )
 

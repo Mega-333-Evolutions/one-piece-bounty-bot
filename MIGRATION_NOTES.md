@@ -3107,6 +3107,84 @@ The two poster tests of round 3, the 16 older suites and the tests of rounds 3 t
 and fonts, with "portrait not available" instead of the profile photo), and the real account: I worked from the name
 as it is in your message. Its characters give exactly the "A I I" of your screenshot, which says they are the same.
 
+## Round 8 (Nov 12): "Logs > Global Leaderboard Ranks" said "You are not authorized to view this item" to a former Legendary Pirate who is an Admiral now
+
+What you asked: you were a Legendary Pirate and are an Admiral now, and since then the Global Leaderboard Ranks log
+says "You are not authorized to view this item". You think it is because Admirals do not appear in the leaderboard.
+An Admiral has to be able to see his previous global leaderboard ranks, even though he cannot appear in it any more.
+
+### Why it refused
+
+The list has one line for each global leaderboard you were in. For every line it first finds out which rank group the
+line belongs to (the groups behind the "Only Pirate King", "Only Emperor" ... buttons), and a line that belongs to
+none of them is answered with "You are not authorized to view this item". The check is made for every line of the
+list, so one such line is enough to refuse the whole list, also the lines that are fine.
+
+The log knew six groups: Pirate King, Emperor, First Mate, Supernova, Warlord and Legendary Pirate. **Rookie** and
+**Admiral** were missing, and the bot itself makes Rookie lines: when a Legendary Pirate or a Warlord loses the
+status (revoked through TgRest, or its time ended, `reset_expired_special_rank_for_user`), his line in the *current*
+global leaderboard is turned into Rookie at once, instead of waiting for the next leaderboard. For a Legendary Pirate
+whose status ends, for example when he is made an Admiral and the status is revoked, the newest line becomes Rookie,
+and from then on the whole list refuses.
+
+So it is not exactly that Admirals are not in the leaderboard: an Admiral whose lines all still say Legendary Pirate
+could open the list. It is also not only for Admirals: a Warlord whose term ended was refused the same way. The
+original bot has the same six groups, so this does not come from the migration.
+
+### The change
+
+- `src/model/enums/Log.py`, `LeaderboardRankLog.get_emoji_legend_list()`: two more groups at the end, Admiral and
+  Rookie, with a comment saying that every rank a line can have has to be there. Now the list, every line, "Stats"
+  and the "Only ..." buttons open for every history. As for the other ranks, the button of a group is there only when
+  you have a line of that rank (so "Only Rookie" for the player above). The current code does not write Admiral lines
+  into the leaderboard (an Admiral is a status, not a place in it), but the rank exists and a line with it would have
+  been refused in the same way, so it is there too.
+- `src/model/LeaderboardUser.py`, `get_max_rank_attained()`: the "Max rank" of the Stats page took the lowest rank
+  number, and the number of Rookie (5) is lower than the ones of Admiral, Legendary Pirate and Warlord (6, 7, 8). With
+  only the first change, the same player would have opened the Stats and read "Max rank: Rookie" (his Legendary Pirate
+  lines are in the same history), so Rookie now counts as the lowest rank there is. Nothing else about the choice
+  changed.
+
+### Decisions on what your request did not say
+
+- **The Rookie line stays Rookie.** It is the label the bot gave it when the status ended (the status screen reads the
+  same line), so the log shows that week as "Rookie" and the weeks before as "Legendary Pirate". If you want that week
+  to say Legendary Pirate in the log, it needs its own marker, because the line is shared with the status screen.
+- **"Max rank" is otherwise as before:** the lowest stored rank number wins, so the order is Pirate King, Emperor,
+  First Mate, Supernova, Admiral, Legendary Pirate, Warlord, Rookie. A player who was a Supernova and later a Warlord
+  still reads Supernova (also in the original bot). The status screen ranks Admiral, Legendary Pirate and Pirate King
+  above the others; say if the Stats page should follow it.
+- **The Stats page still has no lines for Legendary Pirate, Admiral and Rookie** (only "Total appearances" counts
+  them, and the lines for the five other ranks). As in the original; the new lines need new texts in both languages.
+
+### Tested
+
+`test_round8_leaderboard_log.py` (not delivered): what a player does with this log, through the real handlers and
+log screens and the real models and tables (in-memory SQLite; only Telegram is replaced). The histories are made the
+way the bot makes them (`save_leaderboard_user`; a Legendary Pirate or Warlord who loses the status goes through the
+real `reset_expired_special_rank_for_user`). He presses Global Leaderboard Ranks, every numbered line, Stats, and
+every "Only ..." button. 85 checks; on the previous delivery 4 of the 8 players are refused: an Admiral whose
+Legendary Pirate status ended, an Admiral with every rank in his history (the last one Rookie), a Warlord whose term
+ended, and an Admiral with Admiral lines (made by hand). The Admiral whose lines all say Legendary Pirate, the
+Admiral who is still a Legendary Pirate, a regular player and a player with no line open as before. Now all pass:
+the list has one line for each leaderboard with its rank, every line opens with its week and its rank, "Stats" opens
+and gives the right "Max rank" and "Total appearances", every "Only ..." button works, and no error is reported.
+(With only the first change, 2 checks fail: "Max rank: Rookie".)
+
+`test_round8_max_rank.py` (not delivered), 30 checks on `get_max_rank_attained()`: nine fixed histories (the reported
+one first: Legendary Pirate three times, then Rookie, now Legendary Pirate, it was Rookie) with the real Stats text;
+120 random histories of 1 to 8 lines with all 8 ranks: the rank is the one the rule says, and in the 82 that have no
+Rookie line it is the very same row as with the previous query; and a Pirate King line of a *group* leaderboard still
+does not count.
+
+The 16 older suites and the tests of rounds 3 to 7 give the same results as before (only the old `test_crew_disband`
+fails, as before).
+**What I could not verify:** your real database. I cannot see which ranks your lines have; I reproduced the way the
+bot makes the lines that the list refused (the Rookie that a lost status leaves), and in the code it is the only way
+for the lines of your own history to give this message here (the other case is a line that is not yours). If the
+list still refuses after this, tell me what you see. Also not run: MySQL and PostgreSQL (the tests use SQLite with
+the same tables); the new ordering is a plain `CASE` expression, as in three other places of the project.
+
 ## Known limitations / things worth knowing
 
 A few places where Telethon's model doesn't map 1:1 onto Bot API's, in order

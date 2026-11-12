@@ -1032,6 +1032,23 @@ class LeaderboardRankLog(Log):
                 phrases.LEADERBOARD_RANK_LEGENDARY_PIRATE,
                 (LeaderboardUser.rank_index == LeaderboardRankIndex.LEGENDARY_PIRATE),
             ),
+            # Every rank an entry can have must be listed here: an entry whose rank has no legend
+            # is refused as "You are not authorized to view this item", and since the list reads
+            # the legend of each of its entries, one such entry refuses the whole list. A player
+            # whose Legendary Pirate / Warlord status ended gets his entry of the current
+            # leaderboard turned into Rookie (reset_expired_special_rank_for_user), and an Admiral
+            # can have Admiral entries; neither is on the leaderboard any more, but their past
+            # ranks must stay readable.
+            EmojiLegend(
+                Emoji.LEADERBOARD_ADMIN,
+                phrases.LEADERBOARD_RANK_ADMIN,
+                (LeaderboardUser.rank_index == LeaderboardRankIndex.ADMIN),
+            ),
+            EmojiLegend(
+                Emoji.LEADERBOARD_ROOKIE,
+                phrases.LEADERBOARD_RANK_ROOKIE,
+                (LeaderboardUser.rank_index == LeaderboardRankIndex.ROOKIE),
+            ),
         ]
 
 
