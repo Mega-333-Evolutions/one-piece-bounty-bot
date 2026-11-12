@@ -3032,6 +3032,81 @@ Scissors / Russian Roulette test of the previous delivery give the same results 
 `_with_style` as the colours that were already in the bot; if the Telethon of the server does not know button
 colours it logs a warning and sends the buttons without colour, as it always did.
 
+## Round 7 (Nov 11): a stylised name shows as the name it spells on the poster (`$ÂИʖĪ` is SANJI; it showed "A I I")
+
+What you asked: the player called `$ÂИʖĪ` has to show **SANJI** on the bounty poster (your screenshot showed
+"A I I").
+
+### Why it said "A I I"
+
+The poster font has only Latin letters, so a name is turned into Latin letters, one character at a time, before it
+is drawn. For this name: `$` is a symbol, and symbols are ignored (round 3); `Â` becomes A; `И` is the Russian
+letter I, so it becomes I; `ʖ` (a phonetic symbol, "inverted glottal stop") has no Latin letter, so it is dropped;
+`Ī` becomes I. What is left is A, I, I. The name is written with look-alikes: `$` is an S, `И` is a mirrored N and
+`ʖ` is a J.
+
+### The change (only `src/service/bounty_poster_service.py`)
+
+- `STYLISED_LETTER_CHAR_MAP`: `$` is S, `И` is N, `и` is n, `ʖ` is J. It sits next to
+  `FANCY_FONT_LOOKALIKE_CHAR_MAP`, which is applied to every name; this one is applied only inside names written
+  with Latin letters (next section). To support another look-alike that you see, add one line to it.
+- `_read_stylised_letters(name)` applies it. `get_bounty_poster_name` calls it first, so every poster made through
+  it gets it, also the fallback poster. `_build_mixed_script_name_component` calls it too, for the names that have
+  Arabic or Devanagari letters (the native-script code draws them): `$ÂИʖĪ سیب` is now drawn as `SÂNJĪ سیب`, where
+  it was `$ÂИĪ سیب`. The accents stay there, as for every other name on that path, because that path draws the
+  letters its font has as they are.
+
+### When a character is read as a letter
+
+Each of the four has a real use of its own: `$` is a price (`$100`), `И` is the Russian letter I (`Иван` is Ivan)
+and `ʖ` is the nose of the ( ͡° ͜ʖ ͡°) face. So they are read as S, N, J only inside a *run of letters* (a word, or
+the part of it between symbols, digits and spaces) that has at least one Latin letter in it. Anything else is as it
+was:
+
+| name | before | now |
+|---|---|---|
+| `$ÂИʖĪ` | AII | **SANJI** |
+| `Ca$h`, `$hadow`, `Bo$$` | CAH, HADOW, BO | CASH, SHADOW, BOSS |
+| `ИARUTO`, `KAИEKI` | IARUTO, KAIEKI | NARUTO, KANEKI |
+| `Иван Иванов`, `Dmitri Иванов`, `Иван_Ivanov` | IVAN IVANOV, DMITRI IVANOV, IVANIVANOV | the same |
+| `$100`, `Zoro $ Luffy`, `Zoro( ͡° ͜ʖ ͡°)` | 100, ZORO LUFFY, ZORO | the same |
+| `$Zoro$`, `$$Zoro$$`, `$ Zoro $` | ZORO | the same |
+
+### Decisions on what your request did not say
+
+- **A `$` at the end of a word is an S too**: `Pirate$` is now PIRATES (it was PIRATE), `Rich$` is RICHS. If you
+  would rather ignore a `$` at the end of a word, say so (it is a two-line change).
+- **A name wrapped in `$` on both sides is decorated with it**, like with hearts or stars, so those two are ignored
+  as before (`$Zoro$` is ZORO). Consequence: `$ÂИʖĪ$` would be ANJI, not SANJI.
+- **A Russian word with a Latin letter in the same word** (`Иgor`) reads the И as N. Words that are only Cyrillic,
+  or that are next to a Latin word (`Иван Ivanov`, `Иван_Ivanov`), are as before.
+- **Not added:** other look-alikes (for example `Я` for R). You reported these; one line each when you see another.
+
+### Tested
+
+`test_round7_poster_sanji.py` (not delivered), through the real `get_bounty_poster()` and the real poster generator
+(only the Telegram profile photo is replaced): 80 checks; on the previous delivery 35 of them fail, now all pass.
+- The poster says SANJI for `$ÂИʖĪ`: alone, with hearts or stars around it, written with combining accents, in lower
+  case, with a last name, split over the first and the last name, and in a long name (bullets as for "Monkey D.
+  Sanji"). Other stylised names: `$ANJI`, `Sanʖi`, `SaИji`, `ИARUTO`, `Ca$h`, `Bo$$` ...
+- 217 Russian and Ukrainian names (as written, in capitals and in small letters), the prices, the face and the `$`
+  decorations: the same as before.
+- Every Unicode character (198,623 of them) on its own gives exactly what it gave; in the middle of a Latin word
+  (`Ab?cD`) only `$`, `И`, `и` and `ʖ` change, and into S, N, n, J.
+- 140,000 random names: with no Latin letter, or with Latin letters but none of the four, they are unchanged; with
+  both, only the four characters change, one for one.
+- Arabic and Devanagari names, compared pixel for pixel: `$ÂИʖĪ سیب` is drawn as `SÂNJĪ سیب`; `سیب $100`,
+  `سیب Иван`, `سیب ♡ FARZIN` and 10 more are drawn exactly as before; the whole poster too; and when the native-script
+  drawing fails, the fallback poster says SANJI.
+- I rendered the real posters before and after and looked at them: before "A I I", now SANJI, the tail of the J is
+  complete; the posters of `Иван Иванов`, `$Zoro$` and `Zoro( ͡° ͜ʖ ͡°)` are the same pictures, byte for byte.
+
+The two poster tests of round 3, the 16 older suites and the tests of rounds 3 to 6 give the same results as before
+(only the old `test_crew_disband` fails, as before).
+**What I could not verify:** the poster on your server and in Telegram (here it is made with the same poster library
+and fonts, with "portrait not available" instead of the profile photo), and the real account: I worked from the name
+as it is in your message. Its characters give exactly the "A I I" of your screenshot, which says they are the same.
+
 ## Known limitations / things worth knowing
 
 A few places where Telethon's model doesn't map 1:1 onto Bot API's, in order

@@ -1,5 +1,6 @@
 import asyncio
 import functools
+import itertools
 import logging
 import os
 import re
@@ -94,6 +95,97 @@ FANCY_FONT_LOOKALIKE_CHAR_MAP = {
     "Ꮿ": "W",  # Cherokee Letter Ya, used to look like "W"
     "Ꮇ": "M",  # Cherokee Letter Lu, used to look like "M"
 }
+
+# Some stylised names spell a letter of the Latin alphabet with a character that isn't one:
+# "$ÂИʖĪ" is "SANJI" -- the "$" is an "S", the Russian "И" is a mirrored "N" and the phonetic
+# symbol "ʖ" is a "J". unidecode can't tell: it drops the "$" and the "ʖ" (it has no letter for
+# either of them) and reads the "И" as what it is in Russian, an "I", so the poster said "AII".
+# They aren't in FANCY_FONT_LOOKALIKE_CHAR_MAP, which is applied to every name, because each of
+# them has a meaning of its own that has to stay when the name isn't written with Latin letters:
+# a "$" is a dollar sign ("$100"), "И"/"и" are the letter I of Russian names ("Иван" -> "Ivan") and
+# "ʖ" is the nose of the "( ͡° ͜ʖ ͡°)" face. So they're read as these letters only inside a run of
+# letters that has a Latin letter in it (see _read_stylised_letters). Not exhaustive -- add here
+# whatever other look-alike gets reported
+STYLISED_LETTER_CHAR_MAP = {
+    "$": "S",  # Dollar sign, used as an "S"
+    "И": "N",  # Cyrillic Capital Letter I, used as a mirrored "N"
+    "и": "n",  # Cyrillic Small Letter I, used as a mirrored "n"
+    "ʖ": "J",  # Latin Letter Inverted Glottal Stop, used as a "J"
+}
+
+
+def _is_part_of_letters(char: str) -> bool:
+    """
+    Whether a character belongs to a run of letters (see _read_stylised_letters): a letter, a
+    combining mark (they stay with the letter they are on) or one of the characters of
+    STYLISED_LETTER_CHAR_MAP, which includes the "$" that isn't a letter at all
+    :param char: A single character
+    :return: True if it does
+    """
+
+    return (
+        char.isalpha()
+        or char in STYLISED_LETTER_CHAR_MAP
+        or unicodedata.category(char).startswith("M")
+    )
+
+
+def _is_latin_letter(char: str) -> bool:
+    """
+    Whether a character is a letter of the Latin alphabet, by its Unicode name ("LATIN CAPITAL
+    LETTER A WITH CIRCUMFLEX"; the small capitals and the fullwidth letters are named like that
+    too), as opposed to the ones of the other scripts (a Cyrillic one, ...). The characters of
+    STYLISED_LETTER_CHAR_MAP never count, not even the "ʖ" ("LATIN LETTER INVERTED GLOTTAL STOP"):
+    they are what is being decided on
+    :param char: A single character
+    :return: True if it is one
+    """
+
+    return (
+        char not in STYLISED_LETTER_CHAR_MAP
+        and char.isalpha()
+        and "LATIN" in unicodedata.name(char, "")
+    )
+
+
+def _read_stylised_letters(name: str) -> str:
+    """
+    Replaces the characters a stylised name spells its letters with (see STYLISED_LETTER_CHAR_MAP)
+    by those letters, wherever the name is written with Latin letters: "$ÂИʖĪ" -> "SÂNJĪ", "Ca$h"
+    -> "CaSh", "ИARUTO" -> "NARUTO". The rest of the name is left as it is, for
+    get_bounty_poster_name to transliterate
+
+    It is decided for each run of letters of the name on its own (a word, or what is between the
+    symbols inside one: "Иван_Ivanov" is the Russian "Иван" and the Latin "Ivanov"). A run that has
+    no Latin letter in it is left alone, so the real use of these characters stays what it was:
+    "Иван" is a Russian name ("Ivan"), "$100" a price and the "ʖ" of "(͡°͜ʖ͡°)" a nose. (The
+    ones in a name that isn't written with Latin letters at all, like "$" or "ʖ" among Arabic
+    ones, are ignored as before)
+
+    A run that starts and ends with a dollar sign ("$Zoro$") is wrapped in them as a decoration,
+    like the hearts or the stars of other names, so those two are left alone, to be ignored
+    :param name: The raw name, as it is on Telegram
+    :return: The name, with those characters replaced where they are letters
+    """
+
+    parts: list[str] = []
+    for is_letters, chars in itertools.groupby(name, key=_is_part_of_letters):
+        part = "".join(chars)
+
+        if is_letters and any(_is_latin_letter(char) for char in part):
+            leading, body, trailing = re.fullmatch(r"(\$*)(.*?)(\$*)", part).groups()
+            if not (leading and trailing):
+                leading, body, trailing = "", part, ""
+
+            part = (
+                leading
+                + "".join(STYLISED_LETTER_CHAR_MAP.get(char, char) for char in body)
+                + trailing
+            )
+
+        parts.append(part)
+
+    return "".join(parts)
 
 
 def get_native_script(name: str) -> str | None:
@@ -364,13 +456,15 @@ def _build_mixed_script_name_component(text: str) -> Image.Image:
     script run with its own font/direction instead of a single one for the whole string.
 
     Characters that the font they'd be drawn with has no glyph for aren't drawn as blank gaps:
-    they're replaced, or ignored (see _segment_by_script)
+    they're replaced, or ignored (see _segment_by_script). The characters that stylised names
+    spell their letters with are read as those letters, as on the other posters (see
+    _read_stylised_letters: "$ÂИʖĪ" is drawn as "SÂNJĪ", where it would have been "$ÂИĪ")
     :param text: The full name text, in its original (possibly mixed) script
     :return: The name component image, ready to paste over the poster at
     (0, BOUNTY_POSTER_NAME_START_Y)
     """
 
-    runs = _segment_by_script(text)
+    runs = _segment_by_script(_read_stylised_letters(text))
 
     fonts_and_directions: dict[str | None, tuple[ImageFont.FreeTypeFont, str]] = {}
     for _, script in runs:
@@ -495,13 +589,20 @@ def get_bounty_poster_name(name: str) -> str:
     otherwise transliterate them based on their unrelated real meaning instead of their
     intended visual appearance. Any other non-ASCII look-alike not in that map is checked
     against Unicode's official confusables data (see _get_homoglyph_latin_letter) as a general
-    safety net, before finally falling back to unidecode
+    safety net, before finally falling back to unidecode.
+
+    A few characters that stylised names spell their letters with ("$" for "S", "И" for "N", "ʖ"
+    for "J": "$ÂИʖĪ" is "SANJI") are read as those letters first, but only in a name written with
+    Latin letters (see STYLISED_LETTER_CHAR_MAP / _read_stylised_letters), so that real Russian
+    names and the like keep being transliterated as they were
     :param name: The raw name to sanitize, as it is on Telegram
     :return: The sanitized name, safe to pass to the poster generator
     """
 
     if not name:
         return ""
+
+    name = _read_stylised_letters(name)
 
     kept_chars: list[str] = []
     for char in name:
