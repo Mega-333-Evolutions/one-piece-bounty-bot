@@ -25,16 +25,18 @@ class LegendaryPirate(BaseModel):
         db_table = "legendary_pirate"
 
     @staticmethod
-    def get_active() -> list["LegendaryPirate"]:
+    def get_active(at: datetime.datetime = None) -> list["LegendaryPirate"]:
         """
         Get active legendary pirates
+        :param at: The moment the legendary pirates have to be active at (a past or a future one,
+        e.g. the moment the next leaderboard is created). If None, now
         :return: Active legendary pirates
         """
 
         ensure_legendary_pirate_schema()
-        now = datetime.datetime.now()
+        at = datetime.datetime.now() if at is None else at
         return LegendaryPirate.select().where(
-            (LegendaryPirate.end_date.is_null()) | (LegendaryPirate.end_date > now)
+            (LegendaryPirate.end_date.is_null()) | (LegendaryPirate.end_date > at)
         )
 
     def is_active(self) -> bool:
@@ -46,13 +48,14 @@ class LegendaryPirate(BaseModel):
         return self.end_date is None or self.end_date > datetime.datetime.now()
 
     @staticmethod
-    def get_active_user_ids() -> list[int]:
+    def get_active_user_ids(at: datetime.datetime = None) -> list[int]:
         """
         Get active legendary pirate user ids
+        :param at: The moment the legendary pirates have to be active at. If None, now
         :return: Active legendary pirate user ids
         """
 
-        return [legendary_pirate.user.id for legendary_pirate in LegendaryPirate.get_active()]
+        return [legendary_pirate.user.id for legendary_pirate in LegendaryPirate.get_active(at)]
 
     @staticmethod
     def get_active_order_by_bounty() -> list["LegendaryPirate"]:

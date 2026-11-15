@@ -6,6 +6,7 @@ from src.tg_compat.ext import ContextTypes
 from resources import phrases
 from src.model.DevilFruit import DevilFruit
 from src.model.User import User
+from src.model.enums.ButtonStyle import ButtonStyle
 from src.model.enums.Emoji import Emoji
 from src.model.enums.ListPage import ListPage, EmojiLegend
 from src.model.enums.ReservedKeyboardKeys import ReservedKeyboardKeys
@@ -131,6 +132,7 @@ async def manage(
                 phrases.KEY_SHOP,
                 screen=Screen.PVT_DEVIL_FRUIT_SHOP,
                 inbound_info=inbound_keyboard.info,
+                style=ButtonStyle.SUCCESS,
             )
         ]
     )

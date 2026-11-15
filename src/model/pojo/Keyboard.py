@@ -8,6 +8,7 @@ from src.tg_compat.ext import ContextTypes
 import constants as c
 from src.model.User import User
 from src.model.enums.ContextDataKey import ContextDataKey
+from src.model.enums.ButtonStyle import ButtonStyle
 from src.model.enums.MessageSource import MessageSource
 from src.model.enums.ReservedKeyboardKeys import ReservedKeyboardKeys
 from src.model.enums.Screen import Screen
@@ -51,10 +52,13 @@ class Keyboard:
         :param switch_inline_query: The switch inline query
         :param exclude_key_from_inbound_info: The keys to be excluded from the inbound info
         :param message_source: The source of the message
-        :param style: The style of the button (e.g. success, danger, primary)
+        :param style: The style of the button (e.g. success, danger, primary). Without one, the
+        style the text of the button has by default, if any. ButtonStyle.NONE for no style at all
         """
         self.text = text
-        self.style = style or get_semantic_button_style(text)
+        self.style = (
+            None if style == ButtonStyle.NONE else style or get_semantic_button_style(text)
+        )
         self.info: dict = info if info is not None else {}
         self.screen: Screen = screen
         self.previous_screen_list: list[Screen] = (

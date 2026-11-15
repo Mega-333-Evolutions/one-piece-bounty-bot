@@ -854,6 +854,9 @@ class NewWorldPirateLog(Log):
         super().__init__(LogType.NEW_WORLD_PIRATE, only_by_boss=True, has_stats=False)
 
         self.object: User = User()
+        # The ids of the pirates who can become the Pirate King in the next leaderboard, got once
+        # for the whole list, when the first button needs them
+        self.pirate_king_candidate_ids: set[int] | None = None
 
     def set_object(self, object_id: int) -> None:
         self.object: User = User.get(User.id == object_id)
@@ -874,6 +877,20 @@ class NewWorldPirateLog(Log):
         return phrases.NEW_WORLD_PIRATE_LOG_ITEM_TEXT.format(
             self.object.get_markdown_mention(), get_belly_formatted(self.object.bounty)
         )
+
+    def get_item_button_style(self) -> ButtonStyle | None:
+        """
+        A pirate who can become the Pirate King in the next leaderboard (the Pirate King and the
+        Emperors of the current one, and the Warlords and Legendary Pirates of it whose status
+        ends before the next leaderboard) is in green. The others have no colour
+        """
+
+        from src.service.leaderboard_service import get_next_leaderboard_pirate_king_candidate_ids
+
+        if self.pirate_king_candidate_ids is None:
+            self.pirate_king_candidate_ids = get_next_leaderboard_pirate_king_candidate_ids()
+
+        return ButtonStyle.SUCCESS if self.object.id in self.pirate_king_candidate_ids else None
 
     def get_item_detail_text(self) -> str:
         super().get_item_detail_text()
@@ -896,6 +913,21 @@ class NewWorldPirateLog(Log):
 
 class LeaderboardRankLog(Log):
     """Class for leaderboard rank logs"""
+
+    # The ranks that appear in the global leaderboard (the ones of the legend below), the only ones
+    # this log is about. A Rookie and an Admiral do not appear in the leaderboard, so an entry with
+    # one of those ranks is not part of the log: it is neither listed nor counted in the stats.
+    # The bot itself leaves a Rookie entry to a Legendary Pirate or a Warlord whose status ended
+    # (reset_expired_special_rank_for_user). Left in, it would refuse the whole list, since an
+    # entry of a rank that has no legend is "not authorized to view"
+    LEADERBOARD_RANK_INDEXES: tuple[int, ...] = (
+        int(LeaderboardRankIndex.PIRATE_KING),
+        int(LeaderboardRankIndex.EMPEROR),
+        int(LeaderboardRankIndex.FIRST_MATE),
+        int(LeaderboardRankIndex.SUPERNOVA),
+        int(LeaderboardRankIndex.WARLORD),
+        int(LeaderboardRankIndex.LEGENDARY_PIRATE),
+    )
 
     def __init__(self):
         """
@@ -921,6 +953,7 @@ class LeaderboardRankLog(Log):
             .where(
                 (LeaderboardUser.user == self.user)
                 & (Leaderboard.group.is_null())
+                & (LeaderboardUser.rank_index.in_(self.LEADERBOARD_RANK_INDEXES))
                 & (self.get_active_filter_list_condition())
             )
             .order_by(LeaderboardUser.id.desc())
@@ -977,8 +1010,12 @@ class LeaderboardRankLog(Log):
         appearances_as_warlord_percentage = int(
             get_percentage_from_value(appearances_as_warlord, total_appearances)
         )
-        max_by_rank: LeaderboardUser = self.object.get_max_rank_attained(self.user)
-        max_by_bounty: LeaderboardUser = self.object.get_max_bounty_attained(self.user)
+        max_by_rank: LeaderboardUser = self.object.get_max_rank_attained(
+            self.user, self.LEADERBOARD_RANK_INDEXES
+        )
+        max_by_bounty: LeaderboardUser = self.object.get_max_bounty_attained(
+            self.user, self.LEADERBOARD_RANK_INDEXES
+        )
 
         return phrases.LEADERBOARD_RANK_LOG_STATS_TEXT.format(
             total_appearances,
@@ -1031,23 +1068,6 @@ class LeaderboardRankLog(Log):
                 Emoji.LEADERBOARD_LEGENDARY_PIRATE,
                 phrases.LEADERBOARD_RANK_LEGENDARY_PIRATE,
                 (LeaderboardUser.rank_index == LeaderboardRankIndex.LEGENDARY_PIRATE),
-            ),
-            # Every rank an entry can have must be listed here: an entry whose rank has no legend
-            # is refused as "You are not authorized to view this item", and since the list reads
-            # the legend of each of its entries, one such entry refuses the whole list. A player
-            # whose Legendary Pirate / Warlord status ended gets his entry of the current
-            # leaderboard turned into Rookie (reset_expired_special_rank_for_user), and an Admiral
-            # can have Admiral entries; neither is on the leaderboard any more, but their past
-            # ranks must stay readable.
-            EmojiLegend(
-                Emoji.LEADERBOARD_ADMIN,
-                phrases.LEADERBOARD_RANK_ADMIN,
-                (LeaderboardUser.rank_index == LeaderboardRankIndex.ADMIN),
-            ),
-            EmojiLegend(
-                Emoji.LEADERBOARD_ROOKIE,
-                phrases.LEADERBOARD_RANK_ROOKIE,
-                (LeaderboardUser.rank_index == LeaderboardRankIndex.ROOKIE),
             ),
         ]
 

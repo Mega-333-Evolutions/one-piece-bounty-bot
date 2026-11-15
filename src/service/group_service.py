@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from typing import Callable
 
 from src.tg_compat import Message
+from src.tg_compat.constants import ChatMemberStatus
 from src.tg_compat.error import TelegramError, RetryAfter
 from src.tg_compat.ext import ContextTypes
 
@@ -21,6 +22,7 @@ from src.model.Leaderboard import Leaderboard
 from src.model.Prediction import Prediction
 from src.model.PredictionGroupChatMessage import PredictionGroupChatMessage
 from src.model.User import User
+from src.model.enums.BotAdminRight import BotAdminRight
 from src.model.enums.Feature import Feature
 from src.model.pojo.Keyboard import Keyboard
 from src.service.language_service import using_language
@@ -65,6 +67,62 @@ def feature_is_enabled(group_chat: GroupChat, feature: Feature) -> bool:
         if group_chat_enabled_disabled_feature is None
         else not feature.is_enabled_by_default()
     )
+
+
+async def get_bot_admin_right(
+    context: ContextTypes.DEFAULT_TYPE, group_chat: GroupChat, right: str
+) -> BotAdminRight:
+    """
+    Gets whether the bot has an administrator right in a group chat, asking Telegram
+    :param context: The context
+    :param group_chat: The group chat
+    :param right: The name of the right, an attribute of the chat member (e.g. can_pin_messages)
+    :return: Whether the bot has the right, is not an administrator, is one without the right or
+    Telegram could not tell
+    """
+
+    try:
+        bot_member = await context.bot.get_chat_member(
+            group_chat.group.tg_group_id, Env.BOT_ID.get_int()
+        )
+    except TelegramError:
+        return BotAdminRight.UNKNOWN
+
+    if bot_member.status == ChatMemberStatus.OWNER:
+        return BotAdminRight.GRANTED
+
+    if bot_member.status != ChatMemberStatus.ADMINISTRATOR:
+        return BotAdminRight.NOT_ADMIN
+
+    # The right of an administrator whose rights are not known is not assumed
+    return BotAdminRight.GRANTED if getattr(bot_member, right, None) else BotAdminRight.NOT_GRANTED
+
+
+async def get_bot_pin_right(
+    context: ContextTypes.DEFAULT_TYPE, group_chat: GroupChat
+) -> BotAdminRight:
+    """
+    Gets whether the bot can pin messages in a group chat
+    :param context: The context
+    :param group_chat: The group chat
+    :return: Whether the bot can pin messages
+    """
+
+    return await get_bot_admin_right(context, group_chat, "can_pin_messages")
+
+
+async def get_bot_delete_right(
+    context: ContextTypes.DEFAULT_TYPE, group_chat: GroupChat
+) -> BotAdminRight:
+    """
+    Gets whether the bot can delete the messages of others in a group chat (the commands that
+    triggered it): it can always delete its own
+    :param context: The context
+    :param group_chat: The group chat
+    :return: Whether the bot can delete messages of others
+    """
+
+    return await get_bot_admin_right(context, group_chat, "can_delete_messages")
 
 
 def get_group_or_topic_text(group_chat: GroupChat) -> str:

@@ -446,6 +446,19 @@ GRP_TXT_SETTINGS_LANGUAGE = (
     "\n\nCurrent language: *{}*"
 )
 GRP_TXT_FEATURES = "{}Which Bounty System features would you like to enable in this {}?"
+# Popups (a popup is limited to 200 characters)
+GRP_FEATURES_PIN_NOT_ADMIN = (
+    f"{Emoji.PIN} The pin stays off: I'm not an admin in this chat, so I can't pin messages."
+    '\n\nMake me an admin with the "Pin messages" permission, then enable the pin again.'
+)
+GRP_FEATURES_PIN_NOT_GRANTED = (
+    f"{Emoji.PIN} The pin stays off: I'm an admin here, but I don't have the"
+    ' "Pin messages" permission.\n\nTurn it on in my admin rights, then enable the pin again.'
+)
+GRP_FEATURES_PIN_CHECK_FAILED = (
+    f"{Emoji.WARNING} I couldn't check my permissions right now, so the pin was not changed."
+    " Please try again in a moment."
+)
 GRP_KEY_PREDICTION_BET_IN_PRIVATE_CHAT = "Bet in private chat"
 GRP_KEY_PREDICTION_VIEW_IN_PRIVATE_CHAT = "View in private chat"
 GRP_KEY_GAME_PLAY = "Play"
@@ -2401,6 +2414,17 @@ DAILY_REWARD_PRIZE_CONFIRM_BELLY = "Belly amount: ฿*{}*"
 AUTO_DELETE_SET = (
     "After how many minutes should the Bot's messages be deleted from the chat?"
     "\n\nCurrent setting: *{}*"
+)
+# Popups (a popup is limited to 200 characters)
+AUTO_DELETE_NOT_ADMIN = (
+    f"{Emoji.DELETE} Auto delete is on, but I'm not an admin here, so I can only delete my own"
+    " messages, not the commands that triggered them.\n\nMake me an admin with"
+    ' "Delete messages" to delete those too.'
+)
+AUTO_DELETE_NOT_GRANTED = (
+    f"{Emoji.DELETE} Auto delete is on, but I don't have the"
+    ' "Delete messages" permission, so I can only delete my own messages, not the commands that'
+    " triggered them.\n\nGive me that permission to delete those too."
 )
 
 # Owner broadcast - gcast/pcast

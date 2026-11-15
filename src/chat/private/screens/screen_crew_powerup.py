@@ -3,6 +3,7 @@ from src.tg_compat.ext import ContextTypes
 
 import resources.phrases as phrases
 from src.model.User import User
+from src.model.enums.ButtonStyle import ButtonStyle
 from src.model.enums.Screen import Screen
 from src.model.pojo.Keyboard import Keyboard
 from src.service.crew_service import get_crew, get_crew_abilities_text
@@ -24,9 +25,19 @@ async def manage(
     crew = get_crew(user=user)
     inline_keyboard: list[list[Keyboard]] = [
         # Level button
-        [Keyboard(phrases.PVT_KEY_CREW_LEVEL, screen=Screen.PVT_CREW_LEVEL)],
+        [
+            Keyboard(
+                phrases.PVT_KEY_CREW_LEVEL, screen=Screen.PVT_CREW_LEVEL, style=ButtonStyle.SUCCESS
+            )
+        ],
         # Abilities button
-        [Keyboard(phrases.PVT_KEY_CREW_ABILITY, screen=Screen.PVT_CREW_ABILITY)],
+        [
+            Keyboard(
+                phrases.PVT_KEY_CREW_ABILITY,
+                screen=Screen.PVT_CREW_ABILITY,
+                style=ButtonStyle.DANGER,
+            )
+        ],
     ]
 
     await full_message_send(

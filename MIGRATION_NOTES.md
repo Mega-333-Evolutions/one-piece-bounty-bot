@@ -3107,11 +3107,17 @@ The two poster tests of round 3, the 16 older suites and the tests of rounds 3 t
 and fonts, with "portrait not available" instead of the profile photo), and the real account: I worked from the name
 as it is in your message. Its characters give exactly the "A I I" of your screenshot, which says they are the same.
 
-## Round 8 (Nov 12): "Logs > Global Leaderboard Ranks" said "You are not authorized to view this item" to a former Legendary Pirate who is an Admiral now
+## Round 8 (Nov 12, corrected Nov 14): "Logs > Global Leaderboard Ranks" said "You are not authorized to view this item" to a former Legendary Pirate who is an Admiral now
+
+**This section replaces the one of the previous delivery, which was wrong.** I had added Admiral and Rookie to the
+log (their lines were listed, counted, and Rookie was the lowest rank in "Max rank"). You told me that the log is
+only for ranks that appear in the leaderboard, and that an Admiral or a Rookie only has to be able to read the ranks
+he had *before* he became one. Nothing of the previous change is left in the code: the Admiral and Rookie groups
+of the log's legend and the `CASE` ordering in `LeaderboardUser.get_max_rank_attained` are gone.
 
 What you asked: you were a Legendary Pirate and are an Admiral now, and since then the Global Leaderboard Ranks log
-says "You are not authorized to view this item". You think it is because Admirals do not appear in the leaderboard.
-An Admiral has to be able to see his previous global leaderboard ranks, even though he cannot appear in it any more.
+says "You are not authorized to view this item". An Admiral has to be able to see his previous global leaderboard
+ranks, even though he cannot appear in the leaderboard any more.
 
 ### Why it refused
 
@@ -3120,70 +3126,204 @@ line belongs to (the groups behind the "Only Pirate King", "Only Emperor" ... bu
 none of them is answered with "You are not authorized to view this item". The check is made for every line of the
 list, so one such line is enough to refuse the whole list, also the lines that are fine.
 
-The log knew six groups: Pirate King, Emperor, First Mate, Supernova, Warlord and Legendary Pirate. **Rookie** and
-**Admiral** were missing, and the bot itself makes Rookie lines: when a Legendary Pirate or a Warlord loses the
-status (revoked through TgRest, or its time ended, `reset_expired_special_rank_for_user`), his line in the *current*
-global leaderboard is turned into Rookie at once, instead of waiting for the next leaderboard. For a Legendary Pirate
-whose status ends, for example when he is made an Admiral and the status is revoked, the newest line becomes Rookie,
-and from then on the whole list refuses.
-
-So it is not exactly that Admirals are not in the leaderboard: an Admiral whose lines all still say Legendary Pirate
-could open the list. It is also not only for Admirals: a Warlord whose term ended was refused the same way. The
+The log knows six groups: Pirate King, Emperor, First Mate, Supernova, Warlord and Legendary Pirate. The bot itself
+writes a line that is none of them: when a Legendary Pirate or a Warlord loses the status (revoked through TgRest,
+or its time ended, `reset_expired_special_rank_for_user`), his line in the *current* global leaderboard is turned into
+**Rookie** at once, instead of waiting for the next leaderboard. For a Legendary Pirate who is made an Admiral and
+whose status is revoked, the newest line becomes Rookie, and from then on the whole list refused. So it is not really
+that Admirals are not in the leaderboard: it is that line. A Warlord whose term ended was refused the same way. The
 original bot has the same six groups, so this does not come from the migration.
 
 ### The change
 
-- `src/model/enums/Log.py`, `LeaderboardRankLog.get_emoji_legend_list()`: two more groups at the end, Admiral and
-  Rookie, with a comment saying that every rank a line can have has to be there. Now the list, every line, "Stats"
-  and the "Only ..." buttons open for every history. As for the other ranks, the button of a group is there only when
-  you have a line of that rank (so "Only Rookie" for the player above). The current code does not write Admiral lines
-  into the leaderboard (an Admiral is a status, not a place in it), but the rank exists and a line with it would have
-  been refused in the same way, so it is there too.
-- `src/model/LeaderboardUser.py`, `get_max_rank_attained()`: the "Max rank" of the Stats page took the lowest rank
-  number, and the number of Rookie (5) is lower than the ones of Admiral, Legendary Pirate and Warlord (6, 7, 8). With
-  only the first change, the same player would have opened the Stats and read "Max rank: Rookie" (his Legendary Pirate
-  lines are in the same history), so Rookie now counts as the lowest rank there is. Nothing else about the choice
-  changed.
+- `src/model/enums/Log.py`, `LeaderboardRankLog`: `LEADERBOARD_RANK_INDEXES` lists the six ranks that appear in the
+  global leaderboard. `get_items()` only takes the lines with one of those ranks, so a Rookie or an Admiral line is
+  not listed, not counted ("Total appearances" is the number of lines listed), and cannot refuse anything. The list
+  has the lines the player had as Pirate King, Emperor, First Mate, Supernova, Warlord and Legendary Pirate, whatever
+  he is now. A player who has only Rookie / Admiral lines gets the empty list and no Stats button (the Stats button
+  is only there when the list has a line).
+- `src/model/LeaderboardUser.py`: `get_max_rank_attained()` and `get_max_bounty_attained()` take an optional list of
+  ranks, and the Stats page passes the same six, so "Max rank" and "Max bounty" are about the lines of the list.
+  Without the argument they are exactly as in the original.
 
 ### Decisions on what your request did not say
 
-- **The Rookie line stays Rookie.** It is the label the bot gave it when the status ended (the status screen reads the
-  same line), so the log shows that week as "Rookie" and the weeks before as "Legendary Pirate". If you want that week
-  to say Legendary Pirate in the log, it needs its own marker, because the line is shared with the status screen.
-- **"Max rank" is otherwise as before:** the lowest stored rank number wins, so the order is Pirate King, Emperor,
-  First Mate, Supernova, Admiral, Legendary Pirate, Warlord, Rookie. A player who was a Supernova and later a Warlord
-  still reads Supernova (also in the original bot). The status screen ranks Admiral, Legendary Pirate and Pirate King
-  above the others; say if the Stats page should follow it.
-- **The Stats page still has no lines for Legendary Pirate, Admiral and Rookie** (only "Total appearances" counts
-  them, and the lines for the five other ranks). As in the original; the new lines need new texts in both languages.
+- **The week in which a status ended is not in the log.** The line that the bot turned into Rookie is a Rookie line,
+  so it is not listed, and that week is missing from the history (the weeks before it, as Legendary Pirate or
+  Warlord, are there). The bot overwrites the rank of that line, so I cannot tell afterwards what it was. If you want
+  that week to stay as Legendary Pirate / Warlord in the log, the bot has to remember the old rank when it turns the
+  line into Rookie (a new column): say so.
+- **"Max rank" is as before:** the lowest stored rank number wins, so the order is Pirate King, Emperor, First Mate,
+  Supernova, Legendary Pirate, Warlord (also in the original bot).
+- **The Stats page still has no line for Legendary Pirate** (only "Total appearances" counts it). As in the original.
 
 ### Tested
 
-`test_round8_leaderboard_log.py` (not delivered): what a player does with this log, through the real handlers and
-log screens and the real models and tables (in-memory SQLite; only Telegram is replaced). The histories are made the
-way the bot makes them (`save_leaderboard_user`; a Legendary Pirate or Warlord who loses the status goes through the
-real `reset_expired_special_rank_for_user`). He presses Global Leaderboard Ranks, every numbered line, Stats, and
-every "Only ..." button. 85 checks; on the previous delivery 4 of the 8 players are refused: an Admiral whose
-Legendary Pirate status ended, an Admiral with every rank in his history (the last one Rookie), a Warlord whose term
-ended, and an Admiral with Admiral lines (made by hand). The Admiral whose lines all say Legendary Pirate, the
-Admiral who is still a Legendary Pirate, a regular player and a player with no line open as before. Now all pass:
-the list has one line for each leaderboard with its rank, every line opens with its week and its rank, "Stats" opens
-and gives the right "Max rank" and "Total appearances", every "Only ..." button works, and no error is reported.
-(With only the first change, 2 checks fail: "Max rank: Rookie".)
+`test_round8_leaderboard_log.py` (not delivered), through the real handlers and log screens and the real models and
+tables (in-memory SQLite; only Telegram is replaced), 26 checks. Players whose history is made the way the bot makes
+it (the Rookie line comes from the real `reset_expired_special_rank_for_user`): a former Legendary Pirate who is an
+Admiral, a Warlord whose term ended, a regular player with Rookie and Admiral lines only, and a player with no line.
+They press Global Leaderboard Ranks, every numbered line, Stats and every "Only ..." button: the list opens, there is
+no Rookie or Admiral line in it, every line opens with its week and rank, "Stats" gives a "Total appearances" that
+matches the list and a "Max rank" and "Max bounty" taken from the listed lines, and no error is reported. Run on the
+previous delivery (the wrong one) 10 of the 26 checks fail: it lists the Rookie and Admiral lines. Run on the one
+before it, the list answers "You are not authorized to view this item", which is your message, and the suite stops
+there.
 
-`test_round8_max_rank.py` (not delivered), 30 checks on `get_max_rank_attained()`: nine fixed histories (the reported
-one first: Legendary Pirate three times, then Rookie, now Legendary Pirate, it was Rookie) with the real Stats text;
-120 random histories of 1 to 8 lines with all 8 ranks: the rank is the one the rule says, and in the 82 that have no
-Rookie line it is the very same row as with the previous query; and a Pirate King line of a *group* leaderboard still
-does not count.
-
-The 16 older suites and the tests of rounds 3 to 7 give the same results as before (only the old `test_crew_disband`
-fails, as before).
 **What I could not verify:** your real database. I cannot see which ranks your lines have; I reproduced the way the
-bot makes the lines that the list refused (the Rookie that a lost status leaves), and in the code it is the only way
-for the lines of your own history to give this message here (the other case is a line that is not yours). If the
-list still refuses after this, tell me what you see. Also not run: MySQL and PostgreSQL (the tests use SQLite with
-the same tables); the new ordering is a plain `CASE` expression, as in three other places of the project.
+bot makes the lines that the list refused (the Rookie that a lost status leaves). If the list still refuses after
+this, tell me what you see. Not run either: MySQL and PostgreSQL (the tests use SQLite with the same tables; the new
+condition is a plain `IN` list).
+
+## Round 9 (Nov 14): button colours, Pirate King for a Warlord / Legendary Pirate who lost the title, and the group settings that need the bot's rights
+
+What you asked, in the order of your message:
+
+1. A Warlord or a Legendary Pirate who appeared in the last leaderboard and lost the title before the next one can
+   become Pirate King directly, if the bounty is high enough, without being an Emperor first. For **one** upcoming
+   leaderboard: if he is not Pirate King or Emperor in it, he loses the privilege in the next one.
+2. Crew > Power-up: Level green, Abilities red; Level up green; Activate green.
+3. Davy Back Fight list: a fight the crew won green, a lost one red.
+4. Devil Fruit: Discard red, Shop green.
+5. Predictions: won green, lost red; "+ Create" green.
+6. Loans: a loan we gave green, a loan we got red, forgiven loans blue.
+7. New World Pirates log: green for the pirates who can become Pirate King in the upcoming leaderboard.
+8. Notification settings: Enable green, Disable red; and the three red category buttons (Davy Back Fight, Fight,
+   Plunder, in your screenshot) colourless like the others.
+9. The 📌 pin of the Leaderboard and Prediction features is turned on only if the bot can pin; if it cannot, the pin
+   stays red and a popup says that the bot is not an admin / has no permission.
+10. Auto delete: it is turned on in any case (a timer you pick is saved and green), and when the bot cannot delete
+    messages a notice says that it will only delete its own messages, not the messages that triggered it.
+
+### 1. Pirate King: a former Warlord / Legendary Pirate (`src/service/leaderboard_service.py`)
+
+**Before:** the Pirate King is the highest-bounty New World player among those who were Pirate King or Emperor in the
+previous leaderboard. A Warlord or a Legendary Pirate is not in the ranking while he holds the title (the leaderboard
+shows him as Warlord / Legendary Pirate), so when the title ended he was no Emperor and could not be Pirate King
+before he had been Emperor for one leaderboard.
+
+**Now:** `get_pirate_king_candidates()` is the list of the players who can become Pirate King in a leaderboard made
+at a given moment. In the **global** leaderboard it has, besides the Pirate King and the Emperors of the previous
+leaderboard, the Warlords and Legendary Pirates of the previous leaderboard who are not one any more at that moment
+(the term ended or was revoked). The usual requirements stay: New World, active, not arrested, not an Admiral,
+bounty above 0, and the Pirate King is still the highest bounty among the candidates.
+
+- **One leaderboard only, without any counter.** The next leaderboard is made from this one, where the player is
+  First Mate, Supernova... (what he ranked as). Unless he became Pirate King or Emperor, he is no candidate any more.
+  If he became Emperor he is one by the normal rule; if Pirate King, he is the "previous Pirate King".
+- **How the bot knows that he appeared as Warlord / Legendary Pirate:** the line of the previous leaderboard says
+  Warlord or Legendary Pirate, or Rookie (the line that `reset_expired_special_rank_for_user` leaves when the term
+  ended after the leaderboard was made; no other code writes a Rookie line into a leaderboard).
+- **A Warlord / Legendary Pirate whose term is still running when the leaderboard is made** is not a candidate (he is
+  shown as Warlord / Legendary Pirate, as before), also if he was Emperor before.
+- **Local (group) leaderboards are as before:** Warlords and Legendary Pirates exist only in the global one.
+- `Warlord.get_active()` / `get_active_user_ids()` and `LegendaryPirate.get_active()` / `get_active_user_ids()` have
+  an optional `at` (a moment). Without it they are exactly as before; with it they say who is still a Warlord /
+  Legendary Pirate at that moment.
+
+Decisions on what you did not say: a player who was made Warlord *after* the last leaderboard, and whose term ended
+before the next one, has no privilege (he did not appear as Warlord in the last leaderboard, as you wrote); a
+revoked title counts as lost; if the former Warlord is not the highest bounty among the candidates he is an
+Emperor / First Mate by his bounty as usual.
+
+### 2-6, 8. Colours
+
+How a colour is chosen is explained in round 6 (`Keyboard(..., style=...)`; without `style` the button text decides).
+New: `ButtonStyle.NONE` = no colour at all, not even the one the text would give. It is used only for the notification
+categories: *Davy Back Fight*, *Fight* and *Plunder* were red because their **words** are on the bot's list of red
+words (`button_style_utils.py`), not because somebody chose red; now every category button is colourless, in English
+and in Persian.
+
+| screen | change |
+|---|---|
+| Crew > Power-up (`screen_crew_powerup.py`) | Level green, Abilities red |
+| Crew > Power-up > Level (`screen_crew_level.py`) | Level up green |
+| Crew > Power-up > Abilities (`screen_crew_ability.py`) | Activate green |
+| Crew > Davy Back Fight (`screen_crew_davy_back_fight.py`) | numbers: won green, lost red (from the crew's side, the same status as the line's emoji); not finished: colourless |
+| Devil Fruit (`screen_devil_fruit.py`, `screen_devil_fruit_detail.py`) | Shop green (list and detail), Discard red |
+| Predictions (`screen_prediction.py`) | numbers: won green, lost red (the lines that carry the won / lost emoji); "+ Create" green |
+| Loans (`screen_bounty_loan.py`) | numbers: forgiven blue (either side), else a loan you gave green, a loan you got red |
+| Settings > Notifications (`settings_service.get_toggle_keyboard`, `screen_settings_notifications.py`) | ✅ Enable green, ❌ Disable red; categories colourless |
+
+### 7. New World Pirates log: who is green (`Log.py`, `leaderboard_service.py`)
+
+A number is green when the pirate **can become Pirate King in the next leaderboard**, which is decided by the same
+`get_pirate_king_candidates()` as above, for the moment the next leaderboard is made (`get_next_leaderboard_date()`,
+from `CRON_SEND_LEADERBOARD`, as the time left from now so that it agrees with the bot's clock):
+
+- the Pirate King and the 4 Emperors of the current leaderboard;
+- the Warlords / Legendary Pirates of the current leaderboard whose term has already ended, **or ends before the next
+  leaderboard is made** (the end date is known, so they are green at once, not when it ends);
+- **not** a Warlord / Legendary Pirate whose term is still running then (he will be in the leaderboard as such), a
+  permanent Legendary Pirate, an Admiral, an arrested or inactive player, or a player with no bounty.
+
+Green means *can*, not *will*: the Pirate King is the highest bounty among the green ones. With no leaderboard in the
+database nobody is green. The forecast cannot know about a term that somebody extends before the leaderboard.
+
+### 9, 10. The bot's rights in the group settings
+
+`src/service/group_service.py`: `get_bot_pin_right()` and `get_bot_delete_right()` ask Telegram what the bot is in the
+chat and answer with the new `BotAdminRight`: GRANTED, NOT_ADMIN, NOT_GRANTED (an admin without that right) or
+UNKNOWN (Telegram did not answer). `src/tg_compat/_types.py`: `ChatMember` has `can_pin_messages` and
+`can_delete_messages`, filled from Telethon's `ParticipantPermissions` (the owner and the admins of a basic group
+have both).
+
+- **Pin** (`screen_settings_features.py`): turning a pin **on** needs GRANTED. Otherwise nothing is saved, the 📌
+  button stays red and a popup (the kind you have to close) says which case it is: not an admin, an admin without the
+  "Pin messages" right, or "I couldn't check my permissions right now" (UNKNOWN). Turning a pin **off** needs nothing
+  and does not ask Telegram.
+- **Auto delete** (`screen_settings_auto_delete.py`): a timer is always saved and shown green. If the bot is not an
+  admin or has no "Delete messages" right a popup says that it deletes only its own messages, not the messages that
+  triggered them, and what to give it. No popup when it has the right, when it is UNKNOWN (a wrong warning is worse
+  than none), when you pick "Never", or when you only open the screen. Every pick without the right warns again.
+- The popups are in English and Persian (`GRP_FEATURES_PIN_*`, `AUTO_DELETE_NOT_*`), each below Telegram's limit of
+  200 characters.
+
+Things to know: a bot has to be an **admin** to pin, even if the group lets every member pin, so "not an admin" is
+"cannot pin". The Leaderboard pin is on by default (as before), so it is green in a group that never touched it
+whatever the bot can do; the check is made when somebody turns a pin **on**. The wording is mine; change the five
+texts if you prefer others.
+
+### Tested
+
+All through the real chain (`manage()`, the real screens and services, the real models on SQLite), only Telegram is
+fake. 212 checks in 5 suites (not delivered), and a crawl:
+
+- `test_round9_group_settings.py`, 91 checks: a group admin sends `/settings`, opens Features and Auto delete and
+  presses the buttons the bot put there, with the bot as admin with the right, admin without it, not an admin, and
+  Telegram not answering; the saved records, the colours, the popups (text, "alert", exactly one) in English and
+  Persian, the pin that was turned off and on again, and that nothing asks Telegram when a feature is switched.
+- `test_round9_bot_rights.py`, 24 checks: Telethon's real permission objects (admin with / without the right, owner,
+  basic-group admin, member, not in the chat) through the real `_get_chat_member`, and the answers of the service.
+- `test_round9_pirate_king.py`, 49 checks: the real `create_leaderboard_users` on real rows: a former Warlord and a
+  former Legendary Pirate become Pirate King (also when the line says Rookie); a Warlord whose term runs and a
+  permanent Legendary Pirate do not; the privilege is gone one leaderboard later; Emperors keep the old rule;
+  arrested / Admiral excluded; local leaderboards unchanged. Then the real New World Pirates log as a boss: who is
+  green (including a term ending a minute before / after the next leaderboard), and a **cross-check**: every pirate
+  is given the top bounty and the leaderboard is made; those who become Pirate King are exactly the green ones.
+- `test_round9_colours.py`, 22 checks: every colour of the table, read from the buttons the screens send.
+- `test_round8_leaderboard_log.py`, 26 checks (see above).
+- **Crawl** (not delivered): every screen reachable from /start (191, with a crew, fights, fruits, predictions, loans,
+  leaderboards, a Warlord and a Legendary Pirate) for a captain, an Admiral and a plain player, before and after the
+  change: no screen differs in text (apart from clock readings), in buttons or in errors; 32 button colours differ,
+  all of them the ones above.
+- **The same suites on the previous delivery** (zip 26), to see that they can fail: the colour suite fails 19 of its 22
+  checks. The Pirate King suite fails 5 of the 22 checks that run before it stops, all of them results of the new
+  rule (the former Warlord / Legendary Pirate is not made Pirate King, so the previous Pirate King stays one), passes
+  the other 17, and then stops, because `get_pirate_king_candidates` does not exist there. The group
+  settings suite (with the five popup texts read from the new files, since the old ones do not have them) fails 28
+  checks: the pin is turned on without the right and there is no popup; it stops at the first auto delete popup, since
+  there is none. The bot-rights suite tests code that did not exist, so it cannot start. Nothing is claimed here for
+  the New World Pirates log, whose green numbers are new.
+
+**What I could not verify:**
+- How the colours look in your Telegram app (same `_with_style` as the colours that were already in the bot).
+- The rights of the bot in a real group: I tested with Telethon's own permission objects, not with a live chat. It
+  uses `get_permissions()`, like the other admin checks (see "Chat admin/membership checks" below).
+- The 16 older suites and the tests of rounds 3 to 7 **could not be re-run**: they were lost when the sandbox was
+  reset, and I did not rewrite them from memory. The crawl above is what I used instead to look for something that
+  broke elsewhere; it found nothing.
+- MySQL and PostgreSQL (SQLite with the same tables here).
 
 ## Known limitations / things worth knowing
 

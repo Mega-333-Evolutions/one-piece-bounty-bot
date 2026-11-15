@@ -24,6 +24,7 @@ from src.service.language_service import set_current_language
 from src.service.crew_service import manage_inactive_crews
 from src.service.date_service import (
     default_date_format,
+    get_next_run,
     get_remaining_time_from_next_cron,
 )
 from src.service.devil_fruit_service import (
@@ -39,6 +40,15 @@ from src.service.message_service import (
     full_message_send,
     get_message_url,
     escape_valid_markdown_chars,
+)
+
+# The ranks the entry, in the global leaderboard, of a user who was a Warlord or a Legendary Pirate
+# has: that rank or, if the status ended after the leaderboard was created, the Rookie that
+# reset_expired_special_rank_for_user leaves. (A Rookie is not saved in the leaderboard otherwise)
+FORMER_SPECIAL_RANK_INDEXES = (
+    LeaderboardRankIndex.WARLORD,
+    LeaderboardRankIndex.LEGENDARY_PIRATE,
+    LeaderboardRankIndex.ROOKIE,
 )
 
 
@@ -314,6 +324,7 @@ def create_leaderboard_users(
 
     leaderboard_users: list[LeaderboardUser] = []
     position = 1
+    now = datetime.datetime.now()
 
     # If global leaderboard, exclude users that are exempted from global leaderboard requirements
     excluded_user_ids: list[int] = []
@@ -325,17 +336,17 @@ def create_leaderboard_users(
         )
 
         # Add warlords
-        excluded_user_ids.extend(Warlord.get_active_user_ids())
+        excluded_user_ids.extend(Warlord.get_active_user_ids(now))
 
         # Add legendary pirates
-        excluded_user_ids.extend(LegendaryPirate.get_active_user_ids())
+        excluded_user_ids.extend(LegendaryPirate.get_active_user_ids(now))
 
     # Get previous leaderboard users who were Emperors or higher
     previous_leaderboard: Leaderboard = get_leaderboard(1, group)
     if previous_leaderboard is None:
         previous_leaderboard_users = []
     else:
-        previous_leaderboard_users = previous_leaderboard.leaderboard_users
+        previous_leaderboard_users = list(previous_leaderboard.leaderboard_users)
 
     # Ids of eligible users for the leaderboard
     if group is None:
@@ -348,12 +359,11 @@ def create_leaderboard_users(
         )
 
     # Eligible users for Pirate King position - Those who were Emperor or higher in the previous
-    # leaderboard
-    eligible_pk_users: list[User] = [
-        leaderboard_user.user
-        for leaderboard_user in previous_leaderboard_users
-        if leaderboard_user.rank_index <= LeaderboardRank.EMPEROR.index
-    ]
+    # leaderboard and, in the global leaderboard, the Warlords and Legendary Pirates of it who lost
+    # their status since
+    eligible_pk_users: list[User] = get_pirate_king_candidates(
+        previous_leaderboard_users, group is None, now
+    )
 
     # Get current New World users, excluding arrested users and Admins
     new_world_users: list[User] = list(
@@ -453,6 +463,96 @@ def create_leaderboard_users(
             leaderboard_users.append(leaderboard_user)
 
         return leaderboard_users
+
+
+def get_pirate_king_candidates(
+    previous_leaderboard_users: list[LeaderboardUser], is_global: bool, at: datetime.datetime
+) -> list[User]:
+    """
+    Gets the users who can become the Pirate King in the leaderboard created at the given moment,
+    among the ones of the previous leaderboard:
+    - The ones who were Emperor or higher in it
+    - In the global leaderboard, the Warlords and Legendary Pirates who appeared in it and are not
+    one anymore at that moment (their term ended or was revoked). They did not take part in the
+    ranking while they were one, so they can become the Pirate King directly, without having to
+    be an Emperor first. That is for one leaderboard only: the one after is made from this one,
+    where they are not a Warlord or a Legendary Pirate but the First Mate, Supernova... they ranked
+    as, so unless they became the Pirate King or an Emperor in it, they have lost the privilege
+    A Warlord or a Legendary Pirate at that moment is not a candidate: the leaderboard shows him as
+    such, he is not in the ranking
+    :param previous_leaderboard_users: The users of the previous leaderboard
+    :param is_global: Whether the leaderboard is the global one (only it has Warlords and Legendary
+    Pirates)
+    :param at: The moment the leaderboard is created
+    :return: The users who can become the Pirate King
+    """
+
+    special_user_ids: set[int] = set()
+    if is_global:
+        special_user_ids.update(Warlord.get_active_user_ids(at))
+        special_user_ids.update(LegendaryPirate.get_active_user_ids(at))
+
+    candidates: dict[int, User] = {}
+    for leaderboard_user in previous_leaderboard_users:
+        if leaderboard_user.user_id in special_user_ids:
+            continue
+
+        was_emperor_or_higher = leaderboard_user.rank_index <= LeaderboardRank.EMPEROR.index
+        was_warlord_or_legendary_pirate = (
+            is_global and leaderboard_user.rank_index in FORMER_SPECIAL_RANK_INDEXES
+        )
+        if was_emperor_or_higher or was_warlord_or_legendary_pirate:
+            candidates[leaderboard_user.user_id] = leaderboard_user.user
+
+    return list(candidates.values())
+
+
+def get_next_leaderboard_date() -> datetime.datetime:
+    """
+    Gets the moment the next leaderboard is created, on the clock the end dates of the Warlords and
+    Legendary Pirates are on (datetime.now()). It is computed as the time left from now, not as a
+    date of its own, so it lines up with how the Bot's clock decides whether a Warlord or a
+    Legendary Pirate is still active, whatever the timezone configuration
+    :return: The moment the next leaderboard is created
+    """
+
+    now_utc = datetime.datetime.now(datetime.timezone.utc)
+    remaining_time = (
+        get_next_run(Env.CRON_SEND_LEADERBOARD.get(), start_datetime=now_utc) - now_utc
+    )
+    return datetime.datetime.now() + remaining_time
+
+
+def get_next_leaderboard_pirate_king_candidate_ids() -> set[int]:
+    """
+    Gets the ids of the users who can become the Pirate King in the next global leaderboard. It is
+    known before the leaderboard is created, from the current one and from when the Warlords and
+    Legendary Pirates of it lose their status: the ones whose status ends before the next
+    leaderboard is created are candidates already, the ones who are still a Warlord or a Legendary
+    Pirate then are not (the leaderboard shows them as such)
+    :return: The ids of the users who can become the Pirate King
+    """
+
+    current_leaderboard: Leaderboard | None = get_leaderboard()
+    if current_leaderboard is None:
+        return set()
+
+    candidates: list[User] = get_pirate_king_candidates(
+        list(current_leaderboard.leaderboard_users), True, get_next_leaderboard_date()
+    )
+
+    # Candidates have to be in the ranking too, as create_leaderboard_users requires
+    first_new_world_level = get_first_new_world().level
+    return {
+        user.id
+        for user in candidates
+        if user.is_active
+        and user.bounty > 0
+        and not user.is_admin
+        and not user.is_exempt_from_global_leaderboard_requirements
+        and not user.is_arrested()
+        and user.location_level >= first_new_world_level
+    }
 
 
 def create_leaderboard_crews(leaderboard: Leaderboard) -> list[LeaderboardCrew]:

@@ -365,6 +365,10 @@ class ChatMember:
         self.user = user
         self.status = status
         self.custom_title = custom_title
+        # The rights of an administrator (of the owner, all of them) that the bot checks for
+        # itself. None when not known, False for a member, who has no admin rights at all
+        self.can_pin_messages: bool | None = None
+        self.can_delete_messages: bool | None = None
 
 
 class ChatMemberAdministrator(ChatMember):
@@ -397,7 +401,13 @@ async def _get_chat_member(client, chat_entity, user_id) -> ChatMember:
         status = ChatMemberStatus.ADMINISTRATOR
     else:
         status = ChatMemberStatus.MEMBER
-    return ChatMember(user=user, status=status)
+
+    member = ChatMember(user=user, status=status)
+    # What an administrator can do (Telethon: the rights of the admin in a supergroup, always True
+    # in a basic group, and for the owner), False for anybody else
+    member.can_pin_messages = bool(getattr(perms, "pin_messages", False))
+    member.can_delete_messages = bool(getattr(perms, "delete_messages", False))
+    return member
 
 
 async def _get_chat_administrators(client, chat_entity):

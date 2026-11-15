@@ -4,6 +4,7 @@ from src.tg_compat.ext import ContextTypes
 import resources.phrases as phrases
 from src.model.Crew import Crew
 from src.model.User import User
+from src.model.enums.ButtonStyle import ButtonStyle
 from src.model.enums.Screen import Screen
 from src.model.enums.crew.CrewChestSpendingReason import CrewChestSpendingReason
 from src.model.enums.crew.CrewLevelUpgradeType import CrewLevelUpgradeType
@@ -31,7 +32,13 @@ async def manage(
     # Level up button (only if the user is the captain or first mate)
     if user.is_crew_captain_or_first_mate():
         inline_keyboard.append(
-            [Keyboard(phrases.PVT_KEY_CREW_LEVEL_UP, screen=Screen.PVT_CREW_LEVEL_UP)]
+            [
+                Keyboard(
+                    phrases.PVT_KEY_CREW_LEVEL_UP,
+                    screen=Screen.PVT_CREW_LEVEL_UP,
+                    style=ButtonStyle.SUCCESS,
+                )
+            ]
         )
 
     ot_text = phrases.CREW_LEVEL.format(

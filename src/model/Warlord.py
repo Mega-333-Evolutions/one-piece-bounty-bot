@@ -22,13 +22,16 @@ class Warlord(BaseModel):
         db_table = "warlord"
 
     @staticmethod
-    def get_active() -> list["Warlord"]:
+    def get_active(at: datetime.datetime = None) -> list["Warlord"]:
         """
         Get active warlords
+        :param at: The moment the warlords have to be active at (a past or a future one, e.g. the
+        moment the next leaderboard is created). If None, now
         :return: Active warlords
         """
 
-        return Warlord.select().where(Warlord.end_date > datetime.datetime.now())
+        at = datetime.datetime.now() if at is None else at
+        return Warlord.select().where(Warlord.end_date > at)
 
     @staticmethod
     def get_active_order_by_bounty() -> list["Warlord"]:
@@ -45,13 +48,14 @@ class Warlord(BaseModel):
         )
 
     @staticmethod
-    def get_active_user_ids() -> list[int]:
+    def get_active_user_ids(at: datetime.datetime = None) -> list[int]:
         """
         Get active warlords
+        :param at: The moment the warlords have to be active at. If None, now
         :return: Active warlords
         """
 
-        return [warlord.user.id for warlord in Warlord.get_active()]
+        return [warlord.user.id for warlord in Warlord.get_active(at)]
 
     @staticmethod
     def get_latest_active_by_user(user: User) -> "Warlord":

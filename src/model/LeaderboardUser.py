@@ -45,43 +45,56 @@ class LeaderboardUser(BaseModel):
         )
 
     @staticmethod
-    def get_max_rank_attained(user: User) -> "LeaderboardUser":
+    def get_global_entries_query(user: User, rank_indexes: tuple[int, ...] | None = None):
         """
-        Get the highest rank attained by a user
+        Get the query of the entries a user has in the global leaderboards
         param user: The user
-        return: The highest rank attained
+        param rank_indexes: If given, only the entries with one of these rank indexes
+        return: The query
         """
 
-        from src.model.enums.LeaderboardRank import LeaderboardRankIndex
-
-        # The lower the rank index, the higher the rank, except for Rookie: its index (5) is lower
-        # than the ones of Admiral, Legendary Pirate and Warlord (6, 7, 8), but it is the lowest
-        # rank there is. A player who lost one of those ranks is left with a Rookie entry in the
-        # leaderboard, which must not count as the highest rank he attained
-        is_rookie = Case(None, [(LeaderboardUser.rank_index == LeaderboardRankIndex.ROOKIE, 1)], 0)
-
-        return (
+        query = (
             LeaderboardUser()
             .select()
             .join(Leaderboard)
             .where((LeaderboardUser.user == user) & (Leaderboard.group.is_null()))
-            .order_by(is_rookie.asc(), LeaderboardUser.rank_index.asc())
+        )
+
+        if rank_indexes is not None:
+            query = query.where(LeaderboardUser.rank_index.in_(rank_indexes))
+
+        return query
+
+    @staticmethod
+    def get_max_rank_attained(
+        user: User, rank_indexes: tuple[int, ...] | None = None
+    ) -> "LeaderboardUser":
+        """
+        Get the highest rank attained by a user
+        param user: The user
+        param rank_indexes: If given, only the entries with one of these rank indexes count
+        return: The highest rank attained
+        """
+
+        return (
+            LeaderboardUser.get_global_entries_query(user, rank_indexes)
+            .order_by(LeaderboardUser.rank_index.asc())
             .first()
         )
 
     @staticmethod
-    def get_max_bounty_attained(user: User) -> "LeaderboardUser":
+    def get_max_bounty_attained(
+        user: User, rank_indexes: tuple[int, ...] | None = None
+    ) -> "LeaderboardUser":
         """
         Get the highest bounty attained by a user
         param user: The user
+        param rank_indexes: If given, only the entries with one of these rank indexes count
         return: The highest bounty attained
         """
 
         return (
-            LeaderboardUser()
-            .select()
-            .join(Leaderboard)
-            .where((LeaderboardUser.user == user) & (Leaderboard.group.is_null()))
+            LeaderboardUser.get_global_entries_query(user, rank_indexes)
             .order_by(LeaderboardUser.bounty.desc())
             .first()
         )

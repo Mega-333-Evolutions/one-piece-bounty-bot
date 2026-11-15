@@ -4,6 +4,7 @@ from src.tg_compat import Update
 from src.tg_compat.ext import ContextTypes
 
 import resources.phrases as phrases
+from src.model.enums.ButtonStyle import ButtonStyle
 from src.model.enums.Notification import NOTIFICATION_CATEGORY_DESCRIPTIONS
 from src.model.enums.Screen import Screen
 from src.model.pojo.Keyboard import Keyboard
@@ -37,6 +38,9 @@ async def manage(
                     description,
                     screen=Screen.PVT_SETTINGS_NOTIFICATIONS_TYPE,
                     info={NotificationReservedKeys.CATEGORY: category},
+                    # The name of a category must not colour its button: "Fight", "Plunder" and
+                    # "Davy Back Fight" are also the names of the (red) buttons of those actions
+                    style=ButtonStyle.NONE,
                 )
             ]
         )

@@ -6,6 +6,7 @@ from src.model.Crew import Crew
 from src.model.DavyBackFight import DavyBackFight
 from src.model.DavyBackFightParticipant import DavyBackFightParticipant
 from src.model.User import User
+from src.model.enums.ButtonStyle import ButtonStyle
 from src.model.enums.Emoji import Emoji
 from src.model.enums.GameStatus import GameStatus, GAME_STATUS_DESCRIPTIONS
 from src.model.enums.ListPage import ListPage, EmojiLegend
@@ -66,6 +67,17 @@ class CrewDavyBackFightListPage(ListPage):
         return phrases.CREW_DAVY_BACK_FIGHT_ITEM_TEXT.format(
             self.legend.emoji, self.opponent_crew.get_name_with_deeplink()
         )
+
+    def get_item_button_style(self) -> ButtonStyle | None:
+        # A fight the crew won, in green, one it lost, in red. The ones that are not over have no
+        # colour
+        match self.effective_status:
+            case GameStatus.WON:
+                return ButtonStyle.SUCCESS
+            case GameStatus.LOST:
+                return ButtonStyle.DANGER
+
+        return None
 
     def get_item_detail_text(self) -> str:
         super().get_item_detail_text()

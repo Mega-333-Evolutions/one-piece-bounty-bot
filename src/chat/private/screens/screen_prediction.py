@@ -8,6 +8,7 @@ from src.model.GroupUser import GroupUser
 from src.model.Prediction import Prediction
 from src.model.PredictionOptionUser import PredictionOptionUser
 from src.model.User import User
+from src.model.enums.ButtonStyle import ButtonStyle
 from src.model.enums.Emoji import Emoji
 from src.model.enums.ListPage import ListPage
 from src.model.enums.PredictionStatus import PredictionStatus
@@ -111,6 +112,18 @@ class PredictionListPage(ListPage):
             emoji, escape_valid_markdown_chars(self.object.question)
         )
 
+    def get_item_button_style(self) -> ButtonStyle | None:
+        # A prediction the user won, in green, one the user lost, in red: the same ones the emoji
+        # of the item says are won and lost. The others (open, closed, new, not bet on) have no
+        # colour
+        match get_user_prediction_status_emoji(self.object, self.user):
+            case Emoji.LOG_POSITIVE:
+                return ButtonStyle.SUCCESS
+            case Emoji.LOG_NEGATIVE:
+                return ButtonStyle.DANGER
+
+        return None
+
     def get_item_detail_text(self) -> str:
         super().get_item_detail_text()
 
@@ -147,7 +160,13 @@ async def manage(
 
     # Add the create prediction button
     inline_keyboard.append(
-        [Keyboard(text=phrases.KEY_CREATE, screen=Screen.PVT_PREDICTION_CREATE)]
+        [
+            Keyboard(
+                text=phrases.KEY_CREATE,
+                screen=Screen.PVT_PREDICTION_CREATE,
+                style=ButtonStyle.SUCCESS,
+            )
+        ]
     )
 
     await full_message_send(

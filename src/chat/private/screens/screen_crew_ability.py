@@ -4,6 +4,7 @@ from src.tg_compat.ext import ContextTypes
 import resources.phrases as phrases
 from src.model.Crew import Crew
 from src.model.User import User
+from src.model.enums.ButtonStyle import ButtonStyle
 from src.model.enums.Screen import Screen
 from src.model.enums.crew.CrewChestSpendingReason import CrewChestSpendingReason
 from src.model.pojo.Keyboard import Keyboard
@@ -35,7 +36,9 @@ async def manage(
         inline_keyboard.append(
             [
                 Keyboard(
-                    phrases.PVT_KEY_CREW_ABILITY_ACTIVATE, screen=Screen.PVT_CREW_ABILITY_ACTIVATE
+                    phrases.PVT_KEY_CREW_ABILITY_ACTIVATE,
+                    screen=Screen.PVT_CREW_ABILITY_ACTIVATE,
+                    style=ButtonStyle.SUCCESS,
                 )
             ]
         )

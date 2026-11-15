@@ -9,12 +9,17 @@ from src.model.GroupChat import GroupChat
 from src.model.GroupChatEnabledDisabledFeature import GroupChatEnabledDisabledFeature
 from src.model.GroupChatEnabledFeaturePin import GroupChatEnabledFeaturePin
 from src.model.enums.ButtonStyle import ButtonStyle
+from src.model.enums.BotAdminRight import BotAdminRight
 from src.model.enums.Emoji import Emoji
 from src.model.enums.Feature import Feature
 from src.model.enums.ReservedKeyboardKeys import ReservedKeyboardKeys
 from src.model.enums.Screen import Screen
 from src.model.pojo.Keyboard import Keyboard
-from src.service.group_service import is_main_group, get_group_or_topic_text
+from src.service.group_service import (
+    is_main_group,
+    get_group_or_topic_text,
+    get_bot_pin_right,
+)
 from src.service.message_service import full_message_send
 
 
@@ -50,6 +55,21 @@ async def manage(
         # Pin toggle
         if FeaturesReservedKeys.PIN_TOGGLE in inbound_keyboard.info:
             pin_toggle_to_enabled = inbound_keyboard.info[FeaturesReservedKeys.PIN_TOGGLE]
+
+            # The pin can be turned on only if the Bot is able to pin messages in the chat. If it
+            # isn't, the pin is not turned on (its button stays red) and a popup tells the user
+            # why. Turning it off needs nothing
+            if pin_toggle_to_enabled:
+                pin_right = await get_bot_pin_right(context, group_chat)
+                if not pin_right.is_granted():
+                    await full_message_send(
+                        context,
+                        get_pin_not_available_text(pin_right),
+                        update=update,
+                        answer_callback=True,
+                        show_alert=True,
+                    )
+                    return
 
             # Record should be added to table if the feature is pinned by default and the toggle
             # is false, or the feature is not pinned by default and the toggle is true
@@ -127,6 +147,23 @@ async def manage(
         inbound_keyboard=inbound_keyboard,
         should_auto_delete=False,
     )
+
+
+def get_pin_not_available_text(pin_right: BotAdminRight) -> str:
+    """
+    Get the text that explains why the pin can't be turned on
+    :param pin_right: Whether the Bot can pin messages in the chat (not granted)
+    :return: The text
+    """
+
+    match pin_right:
+        case BotAdminRight.NOT_ADMIN:
+            return phrases.GRP_FEATURES_PIN_NOT_ADMIN
+        case BotAdminRight.NOT_GRANTED:
+            return phrases.GRP_FEATURES_PIN_NOT_GRANTED
+        case _:
+            # Telegram could not tell, so the pin is left as it is
+            return phrases.GRP_FEATURES_PIN_CHECK_FAILED
 
 
 def get_features_keyboard(group_chat: GroupChat) -> list[list[Keyboard]]:

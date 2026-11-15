@@ -7,6 +7,7 @@ from src.model.BountyLoan import BountyLoan
 from src.model.User import User
 from src.model.enums.BountyLoanSource import BountyLoanSource
 from src.model.enums.BountyLoanStatus import BountyLoanStatus
+from src.model.enums.ButtonStyle import ButtonStyle
 from src.model.enums.Emoji import Emoji
 from src.model.enums.ListPage import ListPage, EmojiLegend
 from src.model.enums.ReservedKeyboardKeys import ReservedKeyboardKeys
@@ -59,6 +60,14 @@ class BountyLoanListPage(ListPage):
             to_text,
             self.other_user.get_markdown_mention(),
         )
+
+    def get_item_button_style(self) -> ButtonStyle | None:
+        # A forgiven loan is blue whoever it was between, otherwise a loan the user gave is green
+        # and one the user got is red
+        if self.object.status == BountyLoanStatus.FORGIVEN:
+            return ButtonStyle.PRIMARY
+
+        return ButtonStyle.SUCCESS if self.user_is_loaner else ButtonStyle.DANGER
 
     def get_item_detail_text(self) -> str:
         super().get_item_detail_text()

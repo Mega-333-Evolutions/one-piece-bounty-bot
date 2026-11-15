@@ -1,4 +1,5 @@
 import resources.phrases as phrases
+from src.model.enums.ButtonStyle import ButtonStyle
 from src.model.enums.ReservedKeyboardKeys import ReservedKeyboardKeys
 from src.model.enums.Screen import Screen
 from src.model.pojo.Keyboard import Keyboard
@@ -35,6 +36,8 @@ def get_toggle_keyboard(enabled: bool, screen: Screen, inbound_keyboard: Keyboar
         (phrases.KEY_DISABLE if enabled else phrases.KEY_ENABLE),
         info=default_keyboard_data | {ReservedKeyboardKeys.TOGGLE: not enabled},
         screen=screen,
+        # Enable in green, Disable in red
+        style=ButtonStyle.DANGER if enabled else ButtonStyle.SUCCESS,
     )
 
 
