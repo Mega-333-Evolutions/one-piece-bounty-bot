@@ -161,6 +161,8 @@ class BountyLoanListPage(ListPage):
         :return: The emoji legend list
         """
 
+        # A re-paid or forgiven loan is told apart by the side the user is on: the borrower re-pays
+        # (and is forgiven by the loaner), the loaner is re-paid (and forgives)
         return [
             EmojiLegend(
                 Emoji.LOG_NEUTRAL,
@@ -168,9 +170,20 @@ class BountyLoanListPage(ListPage):
                 (BountyLoan.status == BountyLoanStatus.ACTIVE),
             ),
             EmojiLegend(
+                Emoji.LOG_YELLOW,
+                phrases.BOUNTY_LOAN_LEGEND_REPAID_BY_YOU,
+                (
+                    (BountyLoan.status == BountyLoanStatus.REPAID)
+                    & (BountyLoan.borrower == self.user)
+                ),
+            ),
+            EmojiLegend(
                 Emoji.LOG_POSITIVE,
-                phrases.BOUNTY_LOAN_STATUS_REPAID,
-                (BountyLoan.status == BountyLoanStatus.REPAID),
+                phrases.BOUNTY_LOAN_LEGEND_REPAID_TO_YOU,
+                (
+                    (BountyLoan.status == BountyLoanStatus.REPAID)
+                    & (BountyLoan.loaner == self.user)
+                ),
             ),
             EmojiLegend(
                 Emoji.LOG_NEGATIVE,
@@ -178,9 +191,20 @@ class BountyLoanListPage(ListPage):
                 (BountyLoan.status == BountyLoanStatus.EXPIRED),
             ),
             EmojiLegend(
+                Emoji.LOG_PURPLE,
+                phrases.BOUNTY_LOAN_LEGEND_FORGIVEN_BY_YOU,
+                (
+                    (BountyLoan.status == BountyLoanStatus.FORGIVEN)
+                    & (BountyLoan.loaner == self.user)
+                ),
+            ),
+            EmojiLegend(
                 Emoji.LOG_BLUE,
-                phrases.BOUNTY_LOAN_STATUS_FORGIVEN,
-                (BountyLoan.status == BountyLoanStatus.FORGIVEN),
+                phrases.BOUNTY_LOAN_LEGEND_FORGIVEN_BY_OTHERS,
+                (
+                    (BountyLoan.status == BountyLoanStatus.FORGIVEN)
+                    & (BountyLoan.borrower == self.user)
+                ),
             ),
         ]
 

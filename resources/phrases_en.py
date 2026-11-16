@@ -1470,6 +1470,11 @@ BOUNTY_LOAN_STATUS_ACTIVE = "Active"
 BOUNTY_LOAN_STATUS_REPAID = "Re-paid"
 BOUNTY_LOAN_STATUS_EXPIRED = "Expired"
 BOUNTY_LOAN_STATUS_FORGIVEN = "Forgiven"
+# Loans list - legends (and filters) that tell if the user gave or got the loan
+BOUNTY_LOAN_LEGEND_REPAID_BY_YOU = "Re-paid by you"
+BOUNTY_LOAN_LEGEND_REPAID_TO_YOU = "Re-paid to you"
+BOUNTY_LOAN_LEGEND_FORGIVEN_BY_YOU = "Forgiven by you"
+BOUNTY_LOAN_LEGEND_FORGIVEN_BY_OTHERS = "Forgiven by others"
 BOUNTY_LOAN_EXPIRED_ACTION_WARNING_PREFIX = "\n\n_In case the loan is not repaid in time, "
 BOUNTY_LOAN_EXPIRED_ACTION_SUFFIX = (
     "\nThe loan will be automatically forgiven if"
@@ -2007,6 +2012,14 @@ LOG_ITEM_DETAIL_GO_TO_MESSAGE = (
 LOG_ITEM_DETAIL_NO_PERMISSION = "You are not authorized to view this item"
 LOG_STATS_TEXT = "*{} Statistics*\n\n{}"
 LOG_STATS_NOT_ENOUGH_DATA = "Not enough data to generate statistics for this log"
+# Parts of a statistics line. A line the user has nothing for yet (e.g. never lost a fight) shows
+# LOG_STATS_NO_VALUE instead of failing the whole page
+LOG_STATS_NO_VALUE = "—"
+LOG_STATS_ITEM_BELLY_NAME = "[฿{} \\({}\\)]({})"  # Belly and who/what, linked to the log item
+LOG_STATS_ITEM_BELLY = "[฿{}]({})"  # Belly, linked to the log item
+LOG_STATS_ITEM_TEXT = "[{}]({})"  # A text, linked to the log item
+LOG_STATS_NAME_COUNT = "{} \\({}x\\)"  # Who/what and how many times
+LOG_STATS_NAME_BELLY = "{} \\(฿{}\\)"  # Who and how much belly
 
 # Logs - Fight
 FIGHT_LOG_KEY = "Fights"
@@ -2015,8 +2028,7 @@ FIGHT_LOG_ITEM_TEXT = "{} vs {} \\(฿{}\\)"
 FIGHT_LOG_ITEM_DETAIL_TEXT = "*{}*: {}\n*Date*: {}\n*Win probability*: {}%\n\n{}{}"
 FIGHT_LOG_STATS_TEXT = (
     "*Total fights*: {}\n*Wins*: {} \\({}%\\)\n*Losses*: {} \\({}%\\)\n*Belly won*: ฿{}\n*Belly"
-    " lost*: ฿{}\n*Max belly won*: [฿{} \\({}\\)]({})\n*Max belly lost*: [฿{} \\({}\\)]({})\n*Most"
-    " fought user*: {} \\({}x\\)"
+    " lost*: ฿{}\n*Max belly won*: {}\n*Max belly lost*: {}\n*Most fought user*: {}"
 )
 FIGHT_LOG_ITEM_DETAIL_TEXT_REVENGED = "\n\n>This fight has been [revenged]({})"
 FIGHT_LOG_ITEM_DETAIL_TEXT_IN_RESPONSE = (
@@ -2035,10 +2047,10 @@ PLUNDER_LOG_STATS_TEXT = (
     "\n*Losses*: {} \\({}%\\)"
     "\n*Belly stole*: ฿{}"
     "\n*Belly lost*: ฿{}"
-    "\n*Max belly stolen*: [฿{} \\({}\\)]({})"
-    "\n*Max belly lost*: [฿{} \\({}\\)]({})"
-    "\n*Max Impel Down sentence*: [{}]({})"
-    "\n*Most plundered user*: {} \\({}x\\)"
+    "\n*Max belly stolen*: {}"
+    "\n*Max belly lost*: {}"
+    "\n*Max Impel Down sentence*: {}"
+    "\n*Most plundered user*: {}"
 )
 PLUNDER_LOG_ITEM_DETAIL_TEXT_REVENGED = "\n\n>This plunder has been [revenged]({})"
 PLUNDER_LOG_ITEM_DETAIL_TEXT_IN_RESPONSE = (
@@ -2056,7 +2068,7 @@ DOC_Q_GAME_LOG_ITEM_TEXT = "{} ฿{}"
 DOC_Q_GAME_LOG_ITEM_DETAIL_TEXT = "*Date*: {}\n*Correct apple*: {}°\n\n{}{}"
 DOC_Q_GAME_LOG_STATS_TEXT = (  # Logs - Game
     "*Total summons*: {}\n*Wins*: {} \\({}%\\)\n*Losses*: {} \\({}%\\)\n*Belly won*: ฿{}\n*Belly"
-    " lost*: ฿{}\n*Max belly won*: [฿{}]({})\n*Max belly lost*: [฿{}]({})\n"
+    " lost*: ฿{}\n*Max belly won*: {}\n*Max belly lost*: {}\n"
 )
 
 GAME_LOG_KEY = "Challenges"
@@ -2065,9 +2077,8 @@ GAME_LOG_ITEM_TEXT = "{} vs {} \\(฿{}\\)"
 GAME_LOG_ITEM_DETAIL_TEXT = "*{}*: {}\n*Game*: {}\n*Date*: {}\n*Wager*: ฿{}\n\n{}{}"
 GAME_LOG_STATS_TEXT = (
     "*Total challenges*: {}\n*Wins*: {} \\({}%\\)\n*Losses*: {} \\({}%\\)\n*Draws*: {}"
-    " \\({}%\\)\n*Belly won*: ฿{}\n*Belly lost*: ฿{}\n*Max belly won*: [฿{} \\({}\\)]({})\n*Max"
-    " belly lost*: [฿{} \\({}\\)]({})\n*Most challenged user*: {} \\({}x\\)\n*Most played game*:"
-    " {} \\({}x\\)"
+    " \\({}%\\)\n*Belly won*: ฿{}\n*Belly lost*: ฿{}\n*Max belly won*: {}\n*Max belly lost*: {}"
+    "\n*Most challenged user*: {}\n*Most played game*: {}"
 )
 
 # Logs - Bounty Gift
@@ -2079,9 +2090,8 @@ BOUNTY_GIFT_LOG_ITEM_DETAIL_TEXT = (
     f"*{{}}*: {{}}\n*Date*: {{}}\n*Amount*: ฿{{}}{{}}{LOG_ITEM_DETAIL_GO_TO_MESSAGE}"
 )
 BOUNTY_GIFT_LOG_STATS_TEXT = (
-    "*Total gifts*: {}\n*Total given*: ฿{}\n*Total received*: ฿{}\n*Highest given*: [฿{}"
-    " \\({}\\)]({})\n*Highest received*: [฿{} \\({}\\)]({})\n*Top receiver*: {} \\(฿{}\\)\n*Top"
-    " giver*: {} \\(฿{}\\)"
+    "*Total gifts*: {}\n*Total given*: ฿{}\n*Total received*: ฿{}\n*Highest given*: {}"
+    "\n*Highest received*: {}\n*Top receiver*: {}\n*Top giver*: {}"
 )
 BOUNTY_GIFT_LOG_LEGEND_SENT = "Sent"
 BOUNTY_GIFT_LOG_LEGEND_RECEIVED = "Received"
@@ -2115,8 +2125,9 @@ LEADERBOARD_RANK_LOG_ITEM_DETAIL_TEXT = (
 LEADERBOARD_RANK_LOG_STATS_TEXT = (
     "*Total appearances*: {}\n*Appearances as Pirate King*: {} \\({}%\\)\n*Appearances as"
     " Emperor*: {} \\({}%\\)\n*Appearances as First Mate*: {} \\({}%\\)\n*Appearances as"
-    " Supernova*: {} \\({}%\\)\n*Appearances as Warlord*: {} \\({}%\\)\n*Max rank*: [{}"
-    " \\({}°\\)]({})\n*Max bounty*: [฿{} \\({}°\\)]({})"
+    " Supernova*: {} \\({}%\\)\n*Appearances as Warlord*: {} \\({}%\\)\n*Appearances as Legendary"
+    " Pirate*: {} \\({}%\\)\n*Max rank*: [{} \\({}°\\)]({})\n*Max bounty*: [฿{}"
+    " \\({}°\\)]({})"
 )
 
 # Logs - Income tax event

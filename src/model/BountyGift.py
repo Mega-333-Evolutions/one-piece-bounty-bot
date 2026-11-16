@@ -39,6 +39,7 @@ class BountyGift(BaseModel):
         return: The total amount of belly sent or received
         """
 
+        # The sum of no rows is NULL (None): no gifts means 0 belly
         if role is BountyGiftRole.SENDER:
             return (
                 BountyGift()
@@ -47,6 +48,7 @@ class BountyGift(BaseModel):
                     (BountyGift.sender == user) & (BountyGift.status == BountyGiftStatus.CONFIRMED)
                 )
                 .scalar()
+                or 0
             )
 
         return (
@@ -56,15 +58,18 @@ class BountyGift(BaseModel):
                 (BountyGift.receiver == user) & (BountyGift.status == BountyGiftStatus.CONFIRMED)
             )
             .scalar()
+            or 0
         )
 
     @staticmethod
-    def get_highest_belly_sent_or_received(user: User, role: BountyGiftRole) -> "BountyGift":
+    def get_highest_belly_sent_or_received(
+        user: User, role: BountyGiftRole
+    ) -> "BountyGift | None":
         """
         Get the highest bounty sent or received by a user
         param user: The user
         param role: The role (sender or receiver)
-        return: The highest bounty sent or received
+        return: The highest bounty sent or received, None if the user has no such gift
         """
 
         if role is BountyGiftRole.SENDER:
@@ -89,12 +94,12 @@ class BountyGift(BaseModel):
         )
 
     @staticmethod
-    def get_top_givers_or_receiver(user: User, role: BountyGiftRole) -> (User, int):
+    def get_top_givers_or_receiver(user: User, role: BountyGiftRole) -> (User | None, int):
         """
         Get the top user who was given the most belly or gave the most belly by/to a user and the total amount
         param user: The user
         param role: The role (sender or receiver)
-        return: The top user and the total amount
+        return: The top user and the total amount, (None, 0) if the user has no such gift
         """
 
         if role is BountyGiftRole.SENDER:
@@ -108,6 +113,8 @@ class BountyGift(BaseModel):
                 .order_by(fn.SUM(BountyGift.amount).desc())
                 .first()
             )
+            if top_receiver is None:
+                return None, 0
             return top_receiver.receiver, top_receiver.total
 
         top_sender = (
@@ -120,6 +127,8 @@ class BountyGift(BaseModel):
             .order_by(fn.SUM(BountyGift.amount).desc())
             .first()
         )
+        if top_sender is None:
+            return None, 0
         return top_sender.sender, top_sender.total
 
     def get_status(self) -> BountyGiftStatus:

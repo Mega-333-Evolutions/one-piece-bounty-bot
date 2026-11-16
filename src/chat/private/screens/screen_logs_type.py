@@ -3,6 +3,7 @@ from src.tg_compat.ext import ContextTypes
 
 import resources.phrases as phrases
 from src.model.User import User
+from src.model.enums.ButtonStyle import ButtonStyle
 from src.model.enums.Log import Log, get_log_by_type, LOG_TYPE_DETAIL_TEXT_FILL_IN
 from src.model.enums.LogType import LogType
 from src.model.enums.ReservedKeyboardKeys import ReservedKeyboardKeys, LogTypeReservedKeys
@@ -45,6 +46,7 @@ async def manage(
                 phrases.PVT_KEY_LOGS_STATS,
                 screen=Screen.PVT_LOGS_TYPE_STATS,
                 inbound_info=inbound_keyboard.info,
+                style=ButtonStyle.PRIMARY,
             )
             items_keyboard.append([stats_keyboard])
 

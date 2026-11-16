@@ -3325,6 +3325,173 @@ fake. 212 checks in 5 suites (not delivered), and a crawl:
   broke elsewhere; it found nothing.
 - MySQL and PostgreSQL (SQLite with the same tables here).
 
+## Round 10 (Nov 15): button colours, the Fight / Plunder statistics, Legendary Pirate in the leaderboard statistics, Warlord / Legendary Pirate from the moment of the appointment, and the loan legends
+
+What you asked, in the order of your messages:
+
+1. Crew: the **Leave** button is red (danger).
+2. Every **📊 Stats** button is blue (primary).
+3. Every **⬅** and **➡** page button is blue (primary). You first wrote ▶ for the right arrow and corrected it to ➡️
+   (and the left one to ⬅️): the bot's buttons keep their glyphs, only the colour changes.
+4. Fight and Plunder logs: the statistics said "Not enough data to generate statistics for this log" for players who
+   have enough logs.
+5. Global Leaderboard Ranks statistics: add "Appearances as Legendary Pirate".
+6. Warlord and Legendary Pirate privileges apply **at once** when somebody is appointed (you: /status in a group showed
+   no Warlord rank and no Warlord poster until the next global leaderboard had you in it).
+7. In a group that has a local leaderboard, the Warlord / Legendary Pirate rank is shown over the local rank.
+8. When the title ends: groups with a local leaderboard follow the local leaderboard rank; the bot's private chat (which
+   shows the global leaderboard rank) shows Rookie.
+9. Loan log: remove the 🟢 "Re-paid" and 🔵 "Forgiven" legends and their filters, add 🟡 Re-paid by you, 🟢 Re-paid to
+   you, 🟣 Forgiven by you, 🔵 Forgiven by others, each with its filter.
+
+### 1-3. Colours
+
+| button | change | where |
+|---|---|---|
+| Crew > Leave | red | `screen_crew.py` |
+| 📊 Stats (the one button of every log) | blue | `screen_logs_type.py` |
+| ⬅ / ➡ at the bottom of every list (logs, loans, Devil Fruit, predictions, ...) | blue | `list_service.py` (`get_navigation_buttons`) |
+| ⬅ / ➡ between the items, in the detail of an item | blue | `ListPage.py` (`get_previous_and_next_object_keyboard`) |
+
+The page arrows are the one piece of code that every list uses, so "all" is all. Both arrows are on every page as before
+(the pages go round).
+
+### 4. Fight and Plunder statistics (`Fight.py`, `Plunder.py`, `Log.py`, `phrases_en.py`, `phrases_fa.py`)
+
+**Why it said "Not enough data":** the statistics page is made from helper methods that return the most fought user,
+the fight with the max belly won, and so on, each looking at the player **as attacker** and **as defender**. A player who
+was never attacked, never attacked anybody, never won or never lost has nothing on one of the sides; the helpers then
+returned `None` and the page crashed with an `AttributeError`. `screen_logs_type_stats` turns any `AttributeError` into
+"Not enough data", so a bug looked like a lack of data. (This is also how the PTB original behaves.) Any player with an
+empty side saw the message.
+
+**Plunder was worse:** the "Max Impel Down sentence" line was built from an empty `Plunder()` (`sentence_duration` is
+`None`) and crashed with a `TypeError`, which is not caught: the Stats button of the Plunder log failed for **every**
+player, whatever he had.
+
+**Now:** a side with nothing counts as 0, a line with nothing to show says **—** (a dash) and the rest of the page is
+shown. The lines are filled by `Log.get_stats_item_belly()` and `Log.get_stats_name_count()`; the pieces of the lines are
+the new `LOG_STATS_*` phrases (English and Persian). For a player who has everything the text is character for
+character the one of the previous delivery (compared for four players). `Plunder.get_max_sentence` also ignores lost
+plunders without a sentence.
+
+The same flaw was in the statistics of **Challenges** (`Game.py`), **Doc Q** (`DocQGame.py`) and **Bounty Gift**
+(`BountyGift.py`; a player who only gave or only received got "Not enough data"). Not on your list, same cause, same
+fix.
+
+### 5. Appearances as Legendary Pirate (`Log.py`, the two phrase files)
+
+One line after the Warlord one, with the count and the percentage like the others. The total always counted the
+Legendary Pirate appearances, so before this line the lines did not add up to the total.
+
+### 6-8. Warlord / Legendary Pirate from the moment of the appointment
+
+**Before:** the rank of /status was the **higher** of the appointment and the rank of the leaderboard line, and the poster
+looked at the Pirate King line **before** the Warlord appointment. The Pirate King is the only rank that was above a
+Warlord (the Legendary Pirate and the Admiral were above it already), so the code failed in exactly one case: **a
+Warlord who is the Pirate King of a leaderboard at that moment**. He kept the Pirate King rank and poster until a
+global leaderboard was made that had him as Warlord, and in a group with a local leaderboard (which lists Warlords with
+a normal rank) the local Pirate King line stayed over the Warlord rank. That is what you described. The fight odds had
+a gap of their own: the cap of the rank came only from the leaderboard line, so a Warlord / Legendary Pirate appointed
+after the last leaderboard fought with the cap of a Rookie until the next one.
+
+**Now:**
+
+| the player is | rank shown (also for the poster, which is the player's own) | cap of the fight odds |
+|---|---|---|
+| Admiral | Admiral | his line's (as before) |
+| Legendary Pirate (appointed) | Legendary Pirate | Legendary Pirate |
+| Warlord (appointed) | Warlord | Warlord |
+| none of them | the rank of his line: the local leaderboard of the group if it has one (Rookie if he is not in it), else the global one | his global line's |
+
+The appointment wins over **any** line, global or local, Pirate King included. `get_highest_active_rank()` is now "the
+special rank, else the leaderboard rank"; `get_boss_type()` asks for the Warlord before the Pirate King line;
+`fight_get_odds()` takes the special rank over the line (not for an Admiral).
+
+**When the title ends** (the end date passes, or it is revoked):
+
+- a group with a local leaderboard follows the **local** line;
+- the private chat and a group without a local leaderboard follow the **global** line. If that line still says Warlord /
+  Legendary Pirate (it was made while he was one), it counts as **Rookie**. `reset_expired_special_rank_for_user` already
+  relabelled such a line when the end came; `get_current_leaderboard_rank()` now gives the same answer if that job did not
+  run (a restart, or an end while the bot was down);
+- a line of another rank stays what it is. A Warlord appointed **after** the last leaderboard was made, who was an
+  Emperor in it, is an Emperor again when the title ends, until the next leaderboard.
+
+Decisions on what you did not say:
+
+- The cap of the fight odds follows the rank, from the same moment (each rank has its minimum and maximum win
+  probability). With the default settings a Warlord has 95 % and a Legendary Pirate 99 %, a Rookie 80 %. A Warlord who
+  was Pirate King in the leaderboard (99 %) has 95 % at once, which is what the next leaderboard would give him. If you
+  want the odds left out of this, say so and I put that part back.
+- An Admiral who is also a Warlord / Legendary Pirate stays Admiral, and a player who is both a Legendary Pirate and a
+  Warlord is a Legendary Pirate (as before).
+- Nothing about the Pirate King who was **not** appointed, nor about local leaderboards (they still list Warlords and
+  Legendary Pirates with a normal rank) has changed.
+
+### 9. Loan log: legends and filters (`screen_bounty_loan.py`, the two phrase files)
+
+The legend is now ⚪ Active, 🟡 **Re-paid by you**, 🟢 **Re-paid to you**, 🔴 Expired, 🟣 **Forgiven by you**, 🔵 **Forgiven
+by others**. "Re-paid by you" is a loan you borrowed, "Re-paid to you" one you gave; "Forgiven by you" is a loan you
+gave and forgave, "Forgiven by others" one you borrowed and was forgiven. Every legend is also a filter ("Only ..."), the
+old 🟢 / 🔵 legends and their filters are gone, and a legend with no loans has no filter (as in every log). The emoji is
+also the one in the line and in the detail of the loan. The colours of the numbers are the ones of round 9 (forgiven
+blue, a loan you gave green, a loan you got red). The Persian wording is mine ("بازپرداخت‌شده توسط شما", ...): change
+`BOUNTY_LOAN_LEGEND_*` if you prefer others.
+
+### Noticed, not changed
+
+These are in the PTB original and are not part of what you asked; say so and I change them:
+
+- Challenges statistics: "Belly won" and "Max belly won" count the pot of the game (the stake of both players), "Max belly
+  lost" counts half of it; "Draws" counts only the draws of the games you started.
+- "Most fought user", "most plundered user", "most challenged user" and "most played game" use the biggest count in one
+  role (as attacker, or as defender), not the total of both roles.
+- The label of the Plunder statistics is "Belly stole".
+- A Persian list header has an English "a": "انتخاب کنید a *وام* را از لیست زیر" (`determine_article` is asked for the
+  English article of a Persian word in `list_service.py`).
+
+### Tested
+
+All through the real chain (`manage()`, the real screens and services, the real models on SQLite), only Telegram is fake.
+
+- `test_round10.py`, **387 checks** (not delivered): the colours read from the buttons the bot sends (also on page 2 and
+  3 of a 25-item log and in the detail of an item); the Fight and Plunder statistics for seven players with every kind of
+  history (only attacker, only attacked, both, only wins, only losses, one single item), each page compared line by
+  line with values worked out in the test from the rows (and a few by hand); the same for Challenges, Doc Q and
+  Bounty Gift, and in Persian; the Legendary Pirate line (English and Persian); a Warlord and a Legendary Pirate
+  who are Pirate King / Emperor in the global leaderboard, in the private chat, in a group without and with a local
+  leaderboard (also with a local Pirate King), the rank text and the poster (frost + Warlord stamp / lightning + "do not
+  engage"); the Admiral and the Pirate King that was not appointed, unchanged; titles that ended (global line Warlord,
+  Legendary Pirate, Emperor, the expiry job); the fight odds for each case; the loan list for the lender and the
+  borrower, in English and Persian: the emoji of each line, the legend, every filter one after the other and each loan
+  opened.
+- **The same test on the previous delivery (zip 27):** 264 of its 383 checks that run fail (the statistics pages show
+  "Not enough data", or for Plunder crash; the Warlord who is Pirate King shows Pirate King; the fight odds; the old
+  loan legends; the colours). The checks of the things that were **not** to change pass there too (the Admiral, the
+  Pirate King that was not appointed). The four statistics pages the old code could make (players with both sides)
+  are the same text on the new code.
+- The 5 older suites, 212 checks: all pass. **Crawl** of the 191 screens reachable from /start (a captain, an Admiral, a
+  plain player), before and after: the text differs only in the loan list (the legends and emojis) and in the Global
+  Leaderboard Ranks statistics (one line more); the button colours differ on 20 screens (the arrows and Stats); no
+  screen changed its error state (the crawl shows 2 errors, on the old code too, from the crawl's own invented data: a loan without a
+  source and a Davy Back Fight without players).
+- Python 3.11, 3.12 and 3.13 compile all the changed files; pyflakes shows nothing new; black (99 columns) finds no
+  difference in the lines of this round and there is no new line over 99 characters.
+
+**What I could not verify:**
+- Your own case. I do not have your data, so I could not look at your account: the explanation above (you were the
+  Pirate King of the leaderboard when you were appointed) fits all three things you saw, and it is the only case
+  where the old code showed the wrong rank, but if your account was not a Pirate King at that time it is something
+  else, and I need the rank you had and the date of the appointment.
+- The appointments are made by your dashboard. I created the rows the way the bot reads them (`Warlord` /
+  `LegendaryPirate` with an end date) and did not change `is_warlord()` / `is_legendary_pirate()`. A title that ends
+  while the bot runs was tested through its state after the end and through `reset_expired_special_rank_for_user`, not
+  by waiting for the scheduler.
+- How the colours look in your Telegram app (the same `_with_style` as the colours that were already in the bot), and a
+  real Telegram, MySQL or PostgreSQL (SQLite with the same tables here).
+- As in round 9, the suites of rounds 3 to 7 are gone since the sandbox reset, and I did not rewrite them from memory.
+
 ## Known limitations / things worth knowing
 
 A few places where Telethon's model doesn't map 1:1 onto Bot API's, in order

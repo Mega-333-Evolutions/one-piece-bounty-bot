@@ -150,11 +150,14 @@ def get_boss_type(user: User, group_chat: GroupChat = None) -> BossType | None:
     if user.is_legendary_pirate():
         return BossType.LEGENDARY_PIRATE
 
-    if get_current_leaderboard_rank(user, group_chat) == PIRATE_KING:
-        return BossType.PIRATE_KING
-
+    # An appointed Warlord is one from the moment of the appointment, also if they are the Pirate
+    # King of a leaderboard (the global one that was created before it, or the local one of the
+    # group)
     if user.is_warlord():
         return BossType.WARLORD
+
+    if get_current_leaderboard_rank(user, group_chat) == PIRATE_KING:
+        return BossType.PIRATE_KING
 
     if group_chat is not None:
         # Check for Pirate King in global leaderboard

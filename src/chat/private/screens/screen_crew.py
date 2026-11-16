@@ -80,7 +80,13 @@ async def manage(
         # Leave crew button
         if not user.is_crew_captain():
             inline_keyboard.append(
-                [Keyboard(phrases.PVT_KEY_CREW_LEAVE, screen=Screen.PVT_CREW_LEAVE)]
+                [
+                    Keyboard(
+                        phrases.PVT_KEY_CREW_LEAVE,
+                        screen=Screen.PVT_CREW_LEAVE,
+                        style=ButtonStyle.DANGER,
+                    )
+                ]
             )
 
     # Search button

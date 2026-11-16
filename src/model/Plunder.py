@@ -94,23 +94,26 @@ class Plunder(BaseModel):
         return: The total amount of belly
         """
 
+        # The sum of no rows is NULL (None): a side where the user has no plunders counts as 0
         return (
-            Plunder.select(fn.SUM(Plunder.belly)).where(
-                (Plunder.challenger == user) & (Plunder.status == status)
-            )
-        ).scalar() + (
-            Plunder.select(fn.SUM(Plunder.belly)).where(
-                (Plunder.opponent == user) & (Plunder.status == status.get_opposite_status())
-            )
-        ).scalar()
+            Plunder.select(fn.SUM(Plunder.belly))
+            .where((Plunder.challenger == user) & (Plunder.status == status))
+            .scalar()
+            or 0
+        ) + (
+            Plunder.select(fn.SUM(Plunder.belly))
+            .where((Plunder.opponent == user) & (Plunder.status == status.get_opposite_status()))
+            .scalar()
+            or 0
+        )
 
     @staticmethod
-    def get_max_won_or_lost(user: User, status: GameStatus) -> "Plunder":
+    def get_max_won_or_lost(user: User, status: GameStatus) -> "Plunder | None":
         """
         Get the plunder with the max belly won or lost
         param user: The user
         param status: The status (won or lost)
-        return: The plunder
+        return: The plunder, None if the user has no such plunder
         """
 
         # Max plunder as challenger
@@ -131,15 +134,21 @@ class Plunder(BaseModel):
             .first()
         )
 
-        # The max plunder
-        return max(max_plunder_as_challenger, max_plunder_as_opponent, key=lambda f: f.belly)
+        # The max plunder. A user who was never the challenger (or never the opponent) has none on
+        # that side
+        return max(
+            (p for p in (max_plunder_as_challenger, max_plunder_as_opponent) if p is not None),
+            key=lambda p: p.belly or 0,
+            default=None,
+        )
 
     @staticmethod
-    def get_most_plundered_user(user: User) -> (User, int):
+    def get_most_plundered_user(user: User) -> (User | None, int):
         """
         Get the most plundered user and the amount of plunders
         param user: The user
-        return: The most plundered user and the amount of plunders
+        return: The most plundered user and the amount of plunders, (None, 0) if the user has no
+        plunders
         """
 
         most_plundered_user_as_challenger = (
@@ -150,7 +159,9 @@ class Plunder(BaseModel):
             .order_by(SQL("count").desc())
             .first()
         )
-        amount_as_challenger = most_plundered_user_as_challenger.count
+        amount_as_challenger = (
+            most_plundered_user_as_challenger.count if most_plundered_user_as_challenger else 0
+        )
 
         most_plundered_user_as_opponent = (
             Plunder()
@@ -160,27 +171,36 @@ class Plunder(BaseModel):
             .order_by(SQL("count").desc())
             .first()
         )
-        amount_as_opponent = most_plundered_user_as_opponent.count
+        amount_as_opponent = (
+            most_plundered_user_as_opponent.count if most_plundered_user_as_opponent else 0
+        )
 
         if amount_as_opponent > amount_as_challenger:
             return most_plundered_user_as_opponent.challenger, amount_as_opponent
 
+        if most_plundered_user_as_challenger is None:
+            return None, 0
+
         return most_plundered_user_as_challenger.opponent, amount_as_challenger
 
     @staticmethod
-    def get_max_sentence(user: User) -> "Plunder":
+    def get_max_sentence(user: User) -> "Plunder | None":
         """
         Get the plunder with the max sentence
         param user: The user
-        return: The plunder
+        return: The plunder, None if the user was never sentenced
         """
 
-        # Max plunder as challenger
+        # Max plunder as challenger. A lost plunder without a sentence is not one to show
         return (
             Plunder()
             .select()
-            .where(((Plunder.challenger == user) & (Plunder.status == GameStatus.LOST)))
-            .order_by(Plunder.sentence_duration.desc(nulls="last"))
+            .where(
+                (Plunder.challenger == user)
+                & (Plunder.status == GameStatus.LOST)
+                & (Plunder.sentence_duration.is_null(False))
+            )
+            .order_by(Plunder.sentence_duration.desc())
             .first()
         )
 

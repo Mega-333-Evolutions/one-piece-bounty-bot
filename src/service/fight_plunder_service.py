@@ -14,7 +14,7 @@ from src.model.Plunder import Plunder
 from src.model.User import User
 from src.model.enums.BountyLoanSource import BountyLoanSource
 from src.model.enums.GameStatus import GameStatus
-from src.model.enums.LeaderboardRank import get_rank_by_leaderboard_user
+from src.model.enums.LeaderboardRank import get_special_rank
 from src.model.enums.Log import Log
 from src.model.enums.LogType import LogType
 from src.model.enums.Notification import FightAttackNotification, PlunderAttackNotification
@@ -42,7 +42,7 @@ from src.service.date_service import (
 )
 from src.service.devil_fruit_service import get_ability_value, get_ability_adjusted_datetime
 from src.service.impel_down_service import add_sentence
-from src.service.leaderboard_service import get_current_leaderboard_user
+from src.service.leaderboard_service import get_current_leaderboard_rank
 from src.service.user_service import user_has_combat_loss_immunity
 from src.service.message_service import (
     get_yes_no_keyboard,
@@ -505,9 +505,12 @@ def fight_get_odds(challenger: User, opponent: User) -> tuple[float, int, int, i
     # opponent
     win_probability = format_percentage_value((challenger.bounty / opponent.get_max_bounty()) * 50)
 
-    # Cap max probability
-    leaderboard_user = get_current_leaderboard_user(challenger)
-    leaderboard_rank = get_rank_by_leaderboard_user(leaderboard_user)
+    # Cap max probability. A Legendary Pirate or a Warlord has the cap of that rank from the moment
+    # of the appointment, and not from the next global leaderboard that has them in it. (An
+    # Admiral is not in a leaderboard and keeps the cap that gives)
+    leaderboard_rank = get_current_leaderboard_rank(challenger)
+    if not challenger.is_admin:
+        leaderboard_rank = get_special_rank(challenger) or leaderboard_rank
     # Use minimum probability if the probability is too low
     win_probability = max(win_probability, leaderboard_rank.min_win_probability)
     # Use maximum probability if the probability is too high

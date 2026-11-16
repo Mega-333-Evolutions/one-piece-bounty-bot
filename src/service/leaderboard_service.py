@@ -674,14 +674,28 @@ def get_current_leaderboard_rank(
     user: User, group_chat: GroupChat = None
 ) -> LeaderboardRank.LeaderboardRank:
     """
-    Gets the current leaderboard rank for the user
+    Gets the current leaderboard rank for the user: the one of their entry in the current
+    leaderboard (the local one of the group if it has one, the global one otherwise), Rookie if
+    they are not in it.
+    An entry that shows Warlord or Legendary Pirate for someone who no longer is one (it ended
+    after the leaderboard was created) counts as Rookie. reset_expired_special_rank_for_user
+    relabels that entry when it ends, but a restart or a job that did not run would leave it
+    showing the old rank
     :param user: The user to get the leaderboard rank for
     :param group_chat: The group chat to get the leaderboard rank for
     :return: The leaderboard rank
     """
 
     leaderboard_user: LeaderboardUser = get_current_leaderboard_user(user, group_chat=group_chat)
-    return LeaderboardRank.get_rank_by_leaderboard_user(leaderboard_user)
+    leaderboard_rank = LeaderboardRank.get_rank_by_leaderboard_user(leaderboard_user)
+
+    if (leaderboard_rank.index == LeaderboardRankIndex.WARLORD and not user.is_warlord()) or (
+        leaderboard_rank.index == LeaderboardRankIndex.LEGENDARY_PIRATE
+        and not user.is_legendary_pirate()
+    ):
+        return LeaderboardRank.ROOKIE
+
+    return leaderboard_rank
 
 
 def reset_expired_special_rank_for_user(user: User) -> None:
@@ -770,28 +784,22 @@ async def schedule_pending_special_rank_expiry_jobs(application) -> None:
 
 def get_highest_active_rank(user: User, group_chat: GroupChat) -> LeaderboardRank:
     """
-    Get the highest active rank for a given user
-    If the user has a special rank, the special rank is returned if it's higher than the user's
-    leaderboard rank
+    Get the highest active rank for a given user.
+    A user who is an Admiral, a Legendary Pirate or a Warlord has that rank, over the one they have
+    in the leaderboard (in a group that has a local leaderboard too), and from the moment they are
+    appointed, not from the next global leaderboard that has them in it. When it ends they go back
+    to the rank of their entry in the leaderboard of the group (the local one if the group has one,
+    the global one otherwise)
     :param user: User
     :param group_chat: Group chat
     :return: Leaderboard rank
     """
-    # Get current leaderboard user
-    leaderboard_user: LeaderboardUser = get_current_leaderboard_user(user, group_chat=group_chat)
 
-    # Get current leaderboard rank
-    leaderboard_rank: LeaderboardRank = LeaderboardRank.get_rank_by_leaderboard_user(
-        leaderboard_user
-    )
-
-    # Get special rank
     special_rank: LeaderboardRank = LeaderboardRank.get_special_rank(user)
+    if special_rank is not None:
+        return special_rank
 
-    if special_rank is None or leaderboard_rank.is_higher(special_rank):
-        return leaderboard_rank
-
-    return special_rank
+    return get_current_leaderboard_rank(user, group_chat)
 
 
 def get_remaining_time_to_next_leaderboard() -> str:

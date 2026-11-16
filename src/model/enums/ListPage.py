@@ -5,6 +5,7 @@ import constants as c
 from resources import phrases
 from src.model.BaseModel import BaseModel
 from src.model.User import User
+from src.model.enums.ButtonStyle import ButtonStyle
 from src.model.enums.Emoji import Emoji
 from src.model.enums.GameStatus import GameStatus
 from src.model.enums.ReservedKeyboardKeys import ReservedKeyboardKeys
@@ -372,6 +373,7 @@ class ListPage(ABC):
                     Emoji.LEFT_ARROW,
                     info={item_key: self.previous_object.id},
                     inbound_info=inbound_keyboard.info,
+                    style=ButtonStyle.PRIMARY,
                 )
             )
 
@@ -382,6 +384,7 @@ class ListPage(ABC):
                     Emoji.RIGHT_ARROW,
                     info={item_key: self.next_object.id},
                     inbound_info=inbound_keyboard.info,
+                    style=ButtonStyle.PRIMARY,
                 )
             )
 

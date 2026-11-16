@@ -147,23 +147,26 @@ class Game(BaseModel):
         return: The total amount of belly
         """
 
+        # The sum of no rows is NULL (None): a side where the user has no games counts as 0
         return (
-            Game.select(fn.SUM(Game.wager)).where(
-                (Game.challenger == user) & (Game.status == status)
-            )
-        ).scalar() + (
-            Game.select(fn.SUM(Game.wager)).where(
-                (Game.opponent == user) & (Game.status == status.get_opposite_status())
-            )
-        ).scalar()
+            Game.select(fn.SUM(Game.wager))
+            .where((Game.challenger == user) & (Game.status == status))
+            .scalar()
+            or 0
+        ) + (
+            Game.select(fn.SUM(Game.wager))
+            .where((Game.opponent == user) & (Game.status == status.get_opposite_status()))
+            .scalar()
+            or 0
+        )
 
     @staticmethod
-    def get_max_won_or_lost(user: User, status: GameStatus) -> "Game":
+    def get_max_won_or_lost(user: User, status: GameStatus) -> "Game | None":
         """
         Get the game with the max belly won or lost
         param user: The user
         param status: The status (won or lost)
-        return: The game
+        return: The game, None if the user has no such game
         """
 
         # Max game as challenger
@@ -196,11 +199,11 @@ class Game(BaseModel):
         return max_game_as_opponent
 
     @staticmethod
-    def get_most_challenged_user(user: User) -> (User, int):
+    def get_most_challenged_user(user: User) -> (User | None, int):
         """
         Get the most challenged user and the amount of games
         param user: The user
-        return: The most challenged user and the amount of games
+        return: The most challenged user and the amount of games, (None, 0) if there are none
         """
 
         # noinspection DuplicatedCode
@@ -211,7 +214,9 @@ class Game(BaseModel):
             .order_by(SQL("count").desc())
             .first()
         )
-        amount_as_challenger = most_challenged_user_as_challenger.count
+        amount_as_challenger = (
+            most_challenged_user_as_challenger.count if most_challenged_user_as_challenger else 0
+        )
 
         most_challenged_user_as_opponent = (
             Game.select(Game.challenger, fn.COUNT(Game.challenger).alias("count"))
@@ -220,19 +225,24 @@ class Game(BaseModel):
             .order_by(SQL("count").desc())
             .first()
         )
-        amount_as_opponent = most_challenged_user_as_opponent.count
+        amount_as_opponent = (
+            most_challenged_user_as_opponent.count if most_challenged_user_as_opponent else 0
+        )
 
         if amount_as_challenger > amount_as_opponent:
             return most_challenged_user_as_challenger.opponent, amount_as_challenger
 
+        if most_challenged_user_as_opponent is None:
+            return None, 0
+
         return most_challenged_user_as_opponent.challenger, amount_as_opponent
 
     @staticmethod
-    def get_most_played_game(user: User) -> (GameType, int):
+    def get_most_played_game(user: User) -> (GameType | None, int):
         """
         Get the most played game and the amount of games
         param user: The user
-        return: The most played game and the amount of games
+        return: The most played game and the amount of games, (None, 0) if the user has no games
         """
 
         # noinspection DuplicatedCode
@@ -243,7 +253,7 @@ class Game(BaseModel):
             .order_by(SQL("count").desc())
             .first()
         )
-        amount_as_challenger = most_played_as_challenger.count
+        amount_as_challenger = most_played_as_challenger.count if most_played_as_challenger else 0
 
         most_played_as_opponent = (
             Game.select(Game.type, fn.COUNT(Game.type).alias("count"))
@@ -252,10 +262,13 @@ class Game(BaseModel):
             .order_by(SQL("count").desc())
             .first()
         )
-        amount_as_opponent = most_played_as_opponent.count
+        amount_as_opponent = most_played_as_opponent.count if most_played_as_opponent else 0
 
         if amount_as_challenger > amount_as_opponent:
             return GameType(most_played_as_challenger.type), amount_as_challenger
+
+        if most_played_as_opponent is None:
+            return None, 0
 
         return GameType(most_played_as_opponent.type), amount_as_opponent
 

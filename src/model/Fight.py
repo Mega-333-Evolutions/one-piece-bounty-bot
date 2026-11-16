@@ -91,23 +91,26 @@ class Fight(BaseModel):
         return: The total amount of belly
         """
 
+        # The sum of no rows is NULL (None): a side where the user has no fights counts as 0
         return (
-            Fight.select(fn.SUM(Fight.belly)).where(
-                (Fight.challenger == user) & (Fight.status == status)
-            )
-        ).scalar() + (
-            Fight.select(fn.SUM(Fight.belly)).where(
-                (Fight.opponent == user) & (Fight.status == status.get_opposite_status())
-            )
-        ).scalar()
+            Fight.select(fn.SUM(Fight.belly))
+            .where((Fight.challenger == user) & (Fight.status == status))
+            .scalar()
+            or 0
+        ) + (
+            Fight.select(fn.SUM(Fight.belly))
+            .where((Fight.opponent == user) & (Fight.status == status.get_opposite_status()))
+            .scalar()
+            or 0
+        )
 
     @staticmethod
-    def get_max_won_or_lost(user: User, status: GameStatus) -> "Fight":
+    def get_max_won_or_lost(user: User, status: GameStatus) -> "Fight | None":
         """
         Get the fight with the max belly won or lost
         param user: The user
         param status: The status (won or lost)
-        return: The fight
+        return: The fight, None if the user has no such fight
         """
 
         # Max fight as challenger
@@ -128,15 +131,20 @@ class Fight(BaseModel):
             .first()
         )
 
-        # The max fight
-        return max(max_fight_as_challenger, max_fight_as_opponent, key=lambda f: f.belly)
+        # The max fight. A user who was never the challenger (or never the opponent) has none on
+        # that side
+        return max(
+            (f for f in (max_fight_as_challenger, max_fight_as_opponent) if f is not None),
+            key=lambda f: f.belly or 0,
+            default=None,
+        )
 
     @staticmethod
-    def get_most_fought_user(user: User) -> (User, int):
+    def get_most_fought_user(user: User) -> (User | None, int):
         """
         Get the most fought user and the amount of fights
         param user: The user
-        return: The most fought user and the amount of fights
+        return: The most fought user and the amount of fights, (None, 0) if the user has no fights
         """
 
         most_fought_user_as_challenger = (
@@ -147,7 +155,9 @@ class Fight(BaseModel):
             .order_by(SQL("count").desc())
             .first()
         )
-        amount_as_challenger = most_fought_user_as_challenger.count
+        amount_as_challenger = (
+            most_fought_user_as_challenger.count if most_fought_user_as_challenger else 0
+        )
 
         most_fought_user_as_opponent = (
             Fight()
@@ -157,10 +167,15 @@ class Fight(BaseModel):
             .order_by(SQL("count").desc())
             .first()
         )
-        amount_as_opponent = most_fought_user_as_opponent.count
+        amount_as_opponent = (
+            most_fought_user_as_opponent.count if most_fought_user_as_opponent else 0
+        )
 
         if amount_as_opponent > amount_as_challenger:
             return most_fought_user_as_opponent.challenger, amount_as_opponent
+
+        if most_fought_user_as_challenger is None:
+            return None, 0
 
         return most_fought_user_as_challenger.opponent, amount_as_challenger
 

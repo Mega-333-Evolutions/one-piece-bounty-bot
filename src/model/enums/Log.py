@@ -153,6 +153,48 @@ class Log(ListPage):
         """
         pass
 
+    def get_stats_item_belly(
+        self, item: BaseModel | None, belly: int | None, name: str | None = None
+    ) -> str:
+        """
+        Get a statistics line that points to one item of the log with its belly (e.g. the fight
+        with the max belly won), so it is a link to that item and, if there is a name, who or what
+        it was against. A user that has no such item (e.g. never lost a fight) gets "no value" and
+        not an error, as the statistics of a log are not the same for everyone
+
+        :param item: The item, None if the user has none
+        :param belly: The belly of the item
+        :param name: Who or what the item was against, if shown
+        :return: The text for the line
+        """
+
+        if item is None:
+            return phrases.LOG_STATS_NO_VALUE
+
+        if name is None:
+            return phrases.LOG_STATS_ITEM_BELLY.format(
+                get_belly_formatted(belly), self.get_deeplink(item.id)
+            )
+
+        return phrases.LOG_STATS_ITEM_BELLY_NAME.format(
+            get_belly_formatted(belly), name, self.get_deeplink(item.id)
+        )
+
+    @staticmethod
+    def get_stats_name_count(name: str | None, count: int) -> str:
+        """
+        Get a statistics line with who or what and how many times (e.g. the most fought user)
+
+        :param name: Who or what, None if there is none (e.g. no fights)
+        :param count: How many times
+        :return: The text for the line
+        """
+
+        if name is None or not count:
+            return phrases.LOG_STATS_NO_VALUE
+
+        return phrases.LOG_STATS_NAME_COUNT.format(name, count)
+
     def get_item_button_style(self) -> ButtonStyle | None:
         """
         Get the semantic button style for the current log item.
@@ -335,14 +377,19 @@ class FightLog(Log):
             get_belly_formatted(
                 self.object.get_total_belly_won_or_lost(self.user, GameStatus.LOST)
             ),
-            get_belly_formatted(max_won_fight.belly),
-            max_won_fight.get_opponent(self.user).get_markdown_mention(),
-            self.get_deeplink(max_won_fight.id),
-            get_belly_formatted(max_lost_fight.belly),
-            max_lost_fight.get_opponent(self.user).get_markdown_mention(),
-            self.get_deeplink(max_lost_fight.id),
-            most_fought_user.get_markdown_mention(),
-            most_fought_count,
+            self.get_stats_item_belly(
+                max_won_fight,
+                max_won_fight and max_won_fight.belly,
+                max_won_fight and max_won_fight.get_opponent(self.user).get_markdown_mention(),
+            ),
+            self.get_stats_item_belly(
+                max_lost_fight,
+                max_lost_fight and max_lost_fight.belly,
+                max_lost_fight and max_lost_fight.get_opponent(self.user).get_markdown_mention(),
+            ),
+            self.get_stats_name_count(
+                most_fought_user and most_fought_user.get_markdown_mention(), most_fought_count
+            ),
         )
 
     def get_emoji_legend_list(self) -> list[EmojiLegend]:
@@ -463,10 +510,8 @@ class DocQGameLog(Log):
             get_belly_formatted(
                 self.object.get_total_belly_won_or_lost(self.user, GameStatus.LOST)
             ),
-            get_belly_formatted(max_won_game.belly),
-            self.get_deeplink(max_won_game.id),
-            get_belly_formatted(max_lost_game.belly),
-            self.get_deeplink(max_lost_game.id),
+            self.get_stats_item_belly(max_won_game, max_won_game and max_won_game.belly),
+            self.get_stats_item_belly(max_lost_game, max_lost_game and max_lost_game.belly),
         )
 
     def get_item_button_style(self) -> ButtonStyle | None:
@@ -614,16 +659,23 @@ class GameLog(Log):
             get_belly_formatted(
                 self.object.get_total_belly_won_or_lost(self.user, GameStatus.LOST)
             ),
-            get_belly_formatted(max_won_game.wager),
-            max_won_game.get_name(),
-            self.get_deeplink(max_won_game.id),
-            get_belly_formatted(max_lost_game.wager // 2),
-            max_lost_game.get_name(),
-            self.get_deeplink(max_lost_game.id),
-            most_challenged_user.get_markdown_mention(),
-            most_challenged_count,
-            most_played_game.get_name(),
-            most_played_count,
+            self.get_stats_item_belly(
+                max_won_game,
+                max_won_game and max_won_game.wager,
+                max_won_game and max_won_game.get_name(),
+            ),
+            self.get_stats_item_belly(
+                max_lost_game,
+                max_lost_game and max_lost_game.wager // 2,
+                max_lost_game and max_lost_game.get_name(),
+            ),
+            self.get_stats_name_count(
+                most_challenged_user and most_challenged_user.get_markdown_mention(),
+                most_challenged_count,
+            ),
+            self.get_stats_name_count(
+                most_played_game and most_played_game.get_name(), most_played_count
+            ),
         )
 
     def get_emoji_legend_list(self) -> list[EmojiLegend]:
@@ -739,16 +791,8 @@ class BountyGiftLog(Log):
         highest_sent_gift = self.object.get_highest_belly_sent_or_received(
             self.user, BountyGiftRole.SENDER
         )
-        highest_sent_user, highest_sent_amount = (
-            highest_sent_gift.receiver,
-            highest_sent_gift.amount,
-        )
         highest_received_gift = self.object.get_highest_belly_sent_or_received(
             self.user, BountyGiftRole.RECEIVER
-        )
-        highest_received_user, highest_received_amount = (
-            highest_received_gift.sender,
-            highest_received_gift.amount,
         )
         most_sent_user, most_sent_amount = self.object.get_top_givers_or_receiver(
             self.user, BountyGiftRole.SENDER
@@ -765,16 +809,31 @@ class BountyGiftLog(Log):
             get_belly_formatted(
                 self.object.get_total_belly_sent_or_received(self.user, BountyGiftRole.RECEIVER)
             ),
-            get_belly_formatted(highest_sent_amount),
-            highest_sent_user.get_markdown_name(),
-            self.get_deeplink(highest_sent_gift.id),
-            get_belly_formatted(highest_received_amount),
-            highest_received_user.get_markdown_name(),
-            self.get_deeplink(highest_received_gift.id),
-            most_sent_user.get_markdown_mention(),
-            get_belly_formatted(most_sent_amount),
-            most_received_user.get_markdown_mention(),
-            get_belly_formatted(most_received_amount),
+            self.get_stats_item_belly(
+                highest_sent_gift,
+                highest_sent_gift and highest_sent_gift.amount,
+                highest_sent_gift and highest_sent_gift.receiver.get_markdown_name(),
+            ),
+            self.get_stats_item_belly(
+                highest_received_gift,
+                highest_received_gift and highest_received_gift.amount,
+                highest_received_gift and highest_received_gift.sender.get_markdown_name(),
+            ),
+            (
+                phrases.LOG_STATS_NAME_BELLY.format(
+                    most_sent_user.get_markdown_mention(), get_belly_formatted(most_sent_amount)
+                )
+                if most_sent_user is not None
+                else phrases.LOG_STATS_NO_VALUE
+            ),
+            (
+                phrases.LOG_STATS_NAME_BELLY.format(
+                    most_received_user.get_markdown_mention(),
+                    get_belly_formatted(most_received_amount),
+                )
+                if most_received_user is not None
+                else phrases.LOG_STATS_NO_VALUE
+            ),
         )
 
     def get_item_button_style(self) -> ButtonStyle | None:
@@ -1010,6 +1069,12 @@ class LeaderboardRankLog(Log):
         appearances_as_warlord_percentage = int(
             get_percentage_from_value(appearances_as_warlord, total_appearances)
         )
+        appearances_as_legendary_pirate = self.object.get_appearances_as_rank(
+            self.user, LeaderboardRankIndex.LEGENDARY_PIRATE
+        )
+        appearances_as_legendary_pirate_percentage = int(
+            get_percentage_from_value(appearances_as_legendary_pirate, total_appearances)
+        )
         max_by_rank: LeaderboardUser = self.object.get_max_rank_attained(
             self.user, self.LEADERBOARD_RANK_INDEXES
         )
@@ -1029,6 +1094,8 @@ class LeaderboardRankLog(Log):
             appearances_as_supernova_percentage,
             appearances_as_warlord,
             appearances_as_warlord_percentage,
+            appearances_as_legendary_pirate,
+            appearances_as_legendary_pirate_percentage,
             get_rank_by_leaderboard_user(max_by_rank).get_emoji_and_rank_message(),
             max_by_rank.position,
             self.get_deeplink(max_by_rank.id),
@@ -1391,16 +1458,29 @@ class PlunderLog(Log):
             get_belly_formatted(
                 self.object.get_total_belly_won_or_lost(self.user, GameStatus.LOST)
             ),
-            get_belly_formatted(max_won_plunder.belly),
-            max_won_plunder.get_opponent(self.user).get_markdown_mention(),
-            self.get_deeplink(max_won_plunder.id),
-            get_belly_formatted(max_lost_plunder.belly),
-            max_lost_plunder.get_opponent(self.user).get_markdown_mention(),
-            self.get_deeplink(max_lost_plunder.id),
-            convert_hours_to_duration(self.object.sentence_duration, show_full=True),
-            self.get_deeplink(max_sentence.id),
-            most_plundered_user.get_markdown_mention(),
-            most_plundered_count,
+            self.get_stats_item_belly(
+                max_won_plunder,
+                max_won_plunder and max_won_plunder.belly,
+                max_won_plunder and max_won_plunder.get_opponent(self.user).get_markdown_mention(),
+            ),
+            self.get_stats_item_belly(
+                max_lost_plunder,
+                max_lost_plunder and max_lost_plunder.belly,
+                max_lost_plunder
+                and max_lost_plunder.get_opponent(self.user).get_markdown_mention(),
+            ),
+            (
+                phrases.LOG_STATS_ITEM_TEXT.format(
+                    convert_hours_to_duration(max_sentence.sentence_duration, show_full=True),
+                    self.get_deeplink(max_sentence.id),
+                )
+                if max_sentence is not None
+                else phrases.LOG_STATS_NO_VALUE
+            ),
+            self.get_stats_name_count(
+                most_plundered_user and most_plundered_user.get_markdown_mention(),
+                most_plundered_count,
+            ),
         )
 
     def get_emoji_legend_list(self) -> list[EmojiLegend]:

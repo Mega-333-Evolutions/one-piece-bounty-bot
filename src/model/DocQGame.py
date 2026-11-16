@@ -55,19 +55,20 @@ class DocQGame(BaseModel):
         return: The total amount of belly won or lost
         """
 
+        # The sum of no rows is NULL (None): no games means 0 belly
         return (
             DocQGame()
             .select(fn.SUM(DocQGame.belly))
             .where((DocQGame.user == user) & (DocQGame.status == status))
-        ).scalar()
+        ).scalar() or 0
 
     @staticmethod
-    def get_max_won_or_lost(user: User, status: GameStatus) -> "DocQGame":
+    def get_max_won_or_lost(user: User, status: GameStatus) -> "DocQGame | None":
         """
         Get the DocQGame with the max amount of belly won or lost
         param user: The user
         param status: The status (won or lost)
-        return: The max amount of belly won or lost
+        return: The max amount of belly won or lost, None if the user has no such game
         """
 
         return (

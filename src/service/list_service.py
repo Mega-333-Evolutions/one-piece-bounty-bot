@@ -36,6 +36,7 @@ def get_navigation_buttons(inbound_keyboard: Keyboard, current_page: int) -> lis
             phrases.PVT_KEY_PREVIOUS_PAGE,
             info=previous_page_button_info,
             inbound_info=inbound_info,
+            style=ButtonStyle.PRIMARY,
         )
     )
 
@@ -46,6 +47,7 @@ def get_navigation_buttons(inbound_keyboard: Keyboard, current_page: int) -> lis
             phrases.PVT_KEY_NEXT_PAGE,
             info=next_page_button_info,
             inbound_info=inbound_info,
+            style=ButtonStyle.PRIMARY,
         )
     )
 
