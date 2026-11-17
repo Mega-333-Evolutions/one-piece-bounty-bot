@@ -154,31 +154,43 @@ class Log(ListPage):
         pass
 
     def get_stats_item_belly(
-        self, item: BaseModel | None, belly: int | None, name: str | None = None
+        self,
+        item: BaseModel | None,
+        belly: int | None,
+        name: str | None = None,
+        mention: str | None = None,
     ) -> str:
         """
         Get a statistics line that points to one item of the log with its belly (e.g. the fight
-        with the max belly won), so it is a link to that item and, if there is a name, who or what
-        it was against. A user that has no such item (e.g. never lost a fight) gets "no value" and
-        not an error, as the statistics of a log are not the same for everyone
+        with the max belly won), so it is a link to that item and, if there is a name or a mention,
+        who or what it was against. A user that has no such item (e.g. never lost a fight) gets
+        "no value" and not an error, as the statistics of a log are not the same for everyone
+
+        A mention is a link itself (a link to the user) and Telegram does not allow a link inside a
+        link: put inside the link of the item, the mention would take the link apart and show the
+        address of the item as text. So a plain text name goes inside the link of the item, with
+        the belly, and a mention goes after it
 
         :param item: The item, None if the user has none
         :param belly: The belly of the item
-        :param name: Who or what the item was against, if shown
+        :param name: Who or what the item was against, as a plain text (no link in it)
+        :param mention: Who the item was against, as a mention of the user
         :return: The text for the line
         """
 
         if item is None:
             return phrases.LOG_STATS_NO_VALUE
 
-        if name is None:
-            return phrases.LOG_STATS_ITEM_BELLY.format(
-                get_belly_formatted(belly), self.get_deeplink(item.id)
-            )
+        belly_text = get_belly_formatted(belly)
+        deeplink = self.get_deeplink(item.id)
 
-        return phrases.LOG_STATS_ITEM_BELLY_NAME.format(
-            get_belly_formatted(belly), name, self.get_deeplink(item.id)
-        )
+        if mention is not None:
+            return phrases.LOG_STATS_ITEM_BELLY_MENTION.format(belly_text, deeplink, mention)
+
+        if name is None:
+            return phrases.LOG_STATS_ITEM_BELLY.format(belly_text, deeplink)
+
+        return phrases.LOG_STATS_ITEM_BELLY_NAME.format(belly_text, name, deeplink)
 
     @staticmethod
     def get_stats_name_count(name: str | None, count: int) -> str:
@@ -380,12 +392,14 @@ class FightLog(Log):
             self.get_stats_item_belly(
                 max_won_fight,
                 max_won_fight and max_won_fight.belly,
-                max_won_fight and max_won_fight.get_opponent(self.user).get_markdown_mention(),
+                mention=max_won_fight
+                and max_won_fight.get_opponent(self.user).get_markdown_mention(),
             ),
             self.get_stats_item_belly(
                 max_lost_fight,
                 max_lost_fight and max_lost_fight.belly,
-                max_lost_fight and max_lost_fight.get_opponent(self.user).get_markdown_mention(),
+                mention=max_lost_fight
+                and max_lost_fight.get_opponent(self.user).get_markdown_mention(),
             ),
             self.get_stats_name_count(
                 most_fought_user and most_fought_user.get_markdown_mention(), most_fought_count
@@ -1461,12 +1475,13 @@ class PlunderLog(Log):
             self.get_stats_item_belly(
                 max_won_plunder,
                 max_won_plunder and max_won_plunder.belly,
-                max_won_plunder and max_won_plunder.get_opponent(self.user).get_markdown_mention(),
+                mention=max_won_plunder
+                and max_won_plunder.get_opponent(self.user).get_markdown_mention(),
             ),
             self.get_stats_item_belly(
                 max_lost_plunder,
                 max_lost_plunder and max_lost_plunder.belly,
-                max_lost_plunder
+                mention=max_lost_plunder
                 and max_lost_plunder.get_opponent(self.user).get_markdown_mention(),
             ),
             (

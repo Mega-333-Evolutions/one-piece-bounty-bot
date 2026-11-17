@@ -53,6 +53,14 @@ def remember_access_hash(entity) -> None:
     encounter durable across the whole bot rather than scoped to wherever it
     happened to occur.
     """
+    # A "min" user (Telegram sends the users of many group updates that way) comes with an access
+    # hash that is only valid inside the message it was seen in. Telethon does not keep it for that
+    # reason (utils.get_input_peer refuses min users) and can not build a mention or a message from
+    # it, so it must not count as a hash this bot knows: it made resolve_mentions() let the mention
+    # through, and Telethon then silently dropped it, leaving the name as plain text (the "Most
+    # fought user" of the Fight statistics)
+    if getattr(entity, "min", False):
+        return
     user_id = getattr(entity, "id", None)
     access_hash = getattr(entity, "access_hash", None)
     if user_id is not None and access_hash is not None:

@@ -3373,7 +3373,9 @@ player, whatever he had.
 shown. The lines are filled by `Log.get_stats_item_belly()` and `Log.get_stats_name_count()`; the pieces of the lines are
 the new `LOG_STATS_*` phrases (English and Persian). For a player who has everything the text is character for
 character the one of the previous delivery (compared for four players). `Plunder.get_max_sentence` also ignores lost
-plunders without a sentence.
+plunders without a sentence. **Correction (round 11):** the "Max belly won / lost / stolen" lines of those pages have a
+link inside a link, in the previous delivery as well as here, and they showed the address of the item as text: see
+Round 11 for the cause and the fix.
 
 The same flaw was in the statistics of **Challenges** (`Game.py`), **Doc Q** (`DocQGame.py`) and **Bounty Gift**
 (`BountyGift.py`; a player who only gave or only received got "Not enough data"). Not on your list, same cause, same
@@ -3491,6 +3493,118 @@ All through the real chain (`manage()`, the real screens and services, the real 
 - How the colours look in your Telegram app (the same `_with_style` as the colours that were already in the bot), and a
   real Telegram, MySQL or PostgreSQL (SQLite with the same tables here).
 - As in round 9, the suites of rounds 3 to 7 are gone since the sandbox reset, and I did not rewrite them from memory.
+
+## Round 11 (Nov 17): the Fight and Plunder statistics printed the address of the link and lost the name of the player; the names of players the bot can not mention were plain text
+
+What you reported on Nov 16, with three screenshots (Fight, Plunder and Challenge statistics after round 10):
+
+1. The links in the Fight and Plunder statistics do not render like the ones in the Challenge statistics.
+2. The link has the username "@Onepiecebountybot" when the bot is @one_piece_bountybot.
+3. "Most fought user" and "Most plundered user" are not a mention, "Most challenged user" is.
+
+The first is a mistake of mine in round 10. The second is the same mistake seen from another side (nothing is wrong with the username). The third has a different cause, found while looking at the first.
+
+### 1. A link inside a link (`Log.py`, `phrases_en.py`, `phrases_fa.py`)
+
+**What you saw:** `Max belly won: ฿360,857,202 ([Amir)](https://t.me/onepiecebountybot?start=eyJh...)`: the amount cut in the
+wrong place, a closing bracket, and the address of the item printed as text.
+
+**Why:** the line was `[฿{amount} \({mention}\)]({address})`: "amount (player)" as **one link** to the item, and the player
+inside it is a **mention, which is a link too** (`[Amir](tg://user?id=...)`). A link inside a link does not exist in
+Telegram (the Bot API documentation says that entities other than bold, italic, underline, strikethrough and spoiler can
+not contain each other). The compat layer's converter takes the first `]` as the end of the text of a link, so the link
+became "฿360,857,202 ([Amir" (pointing to Amir), and what was left, `)](https://t.me/...)`, was printed as text. The
+upstream PTB lines are built the same way; nobody saw it because those pages mostly said "Not enough data" (round 10, item
+4). When round 10 made them work, **every Fight and Plunder page with a "Max belly" line had it**, in English and Persian.
+(Challenges did not: the name there is a game, plain text, and a plain text can be inside a link.)
+
+**The username:** nothing was wrong with it. The address of the item is `https://t.me/one_piece_bountybot?start=...` and
+it was printed as text. In the markup of the bot's messages `_..._` is italics, so the two underscores were taken as
+italic marks: Telegram showed "onepiecebountybot" with "piece" in italics (it is in your screenshot). The Challenge line
+is a normal link: its address is hidden under the text, no underscore is ever read as markup.
+
+**Now:** the link is on the amount only and the mention of the player follows it, outside the link:
+
+| line | now |
+|---|---|
+| Fight: Max belly won / lost; Plunder: Max belly stolen / lost | `[฿amount](item)` then `(mention of the opponent)`: **changed** |
+| Challenges, Doc Q, Bounty Gift: Max belly won / lost, Highest given / received | unchanged: a plain name (the game, the name of the user) stays inside the one link |
+| Max Impel Down sentence, Max rank, Max bounty | unchanged |
+
+`Log.get_stats_item_belly()` has a new parameter `mention` next to `name` (`name` is plain text and goes inside the link, a
+`mention` goes after it). New phrase `LOG_STATS_ITEM_BELLY_MENTION` (English and Persian).
+
+### 2. Players the bot can not mention (`src/tg_compat/_types.py`)
+
+"Most challenged user: Soul" was blue and "Most fought user: ..." was black: the two lines are built by the same
+`get_markdown_mention()`; the difference is the player.
+
+**What happened for the players who showed as plain text:** `resolve_mentions()` believed the bot knew them and left their
+mention in the text; Telethon, when it builds the message, could not build a mention for them and **silently deletes** a
+mention it can not build (`_replace_with_mention`: `del msg_entities[i]`), so the name stayed plain: not blue, and not bold
+either. The fallback `_mentions.py` was written for (the name in bold) never ran for them.
+
+**Why it believed it:** `remember_access_hash()` stored the access hash of every user entity it saw, "min" users too.
+Telegram sends some users as "min" (typically in the updates of groups): their hash is valid only inside the message they
+were seen in, and Telethon itself refuses it (`utils.get_input_peer` does not accept a min user; neither the session nor
+its entity cache keep one). It was in our cache and could not be used.
+
+**Now:** `remember_access_hash()` ignores min users. A player the bot has only seen as a min user is treated like one it
+has never seen: `resolve_mentions()` tries a live lookup and, if it fails, writes the name in **bold**, as `_mentions.py`
+always said. `ensure_resolvable_peer()` (the check before a private message) stops counting such a hash too: a message to
+such a player is stopped before the send as "can not be reached" (the case the callers already handle), instead of
+failing in the send.
+
+**What this does not do: it does not make those players clickable.** A mention needs an access hash that Telethon can
+use, and the bot has none for them. They show in **bold** until the bot sees them again as a full user. A player who has
+written to the bot privately can be found by id (Telethon has a fallback for bots, `users.getUsers` with hash 0, see
+`get_input_entity`), so asking such a player to open the bot and press Start is the thing that is expected to work; I could
+not test it against the real Telegram.
+
+**What changes everywhere:** the same `resolve_mentions()` runs for every message, so those players are now bold where they
+were plain text, in leaderboards, logs, notifications, all of them.
+
+**An option I did not take:** for a player who has a public @username, a link `t.me/username` is clickable without any
+hash. But the username in the database can be old (a username that was released can belong to somebody else), and the link
+would open the wrong person. Say so if you want it.
+
+### Why round 10 did not catch it
+
+`test_round10.py` compared the MarkdownV2 text of the page with an expectation made with the same structure: it checked
+that the page was what the code said, not what Telegram shows. The sentence of round 10, "for a player who has everything
+the text is character for character the one of the previous delivery", was true and no comfort: the previous text had the
+same flaw. (Section 4 of round 10 has a pointer to this one.)
+
+The new `test_round11.py` (not delivered, 163 checks) sends every statistics page through the **real** compat layer
+(`Bot._prepare_text`: `resolve_mentions` and the markdown to HTML conversion) and **Telethon's own message parser** (the
+one `send_message` / `edit_message_text` use, with the step that drops a mention). Only the lookup of users is fake. It
+checks what is shown (no `](`, no square bracket, no address, no backslash, nothing italic), what each entity covers (the
+amount is **one** link to the item, with the underscores of `one_piece_bountybot` in its address; the player is a mention
+or bold, never plain), in English and Persian, with players of every kind (one the bot can mention, one it has only a min
+hash of, one never seen) and names with `_`, `.`, `-`, brackets and letters outside the BMP.
+
+### Tested
+
+- `test_round11.py`: 163 checks pass. **On the previous delivery (zip 28), 75 of the 163 fail**: the garbled text, the
+  italic "piece", the swallowed mention, the plain name of a min player. It reproduces your screenshots: `฿360,857,202
+  ([Amir)](https://t.me/onepiecebountybot?start=…)`, "piece" in italics, a black "Most fought user".
+- All 34 statistics pages of the round 10 test (both languages) through the same path: on the previous delivery the 16
+  Fight and Plunder pages show the broken text, now none does.
+- The crawl of the 191 screens (a captain, an Admiral, a plain player), before and after: no difference in any text, button
+  or colour. Through the real renderer, none of the 191 screens shows markdown syntax or an address as text, even with every
+  mention kept.
+- `test_round10.py` (387 checks, the expectation of the Fight and Plunder lines changed to the new form) and the 5 older
+  suites (212 checks): all pass. Smoke test passes. Python 3.11, 3.12 and 3.13 compile the changed files; pyflakes and black
+  show nothing new, and there is no new line over 99 characters.
+
+**What I could not verify:**
+
+- How it looks in your Telegram app: the test goes up to the message Telegram receives (text and entities), and only the
+  real Telegram can show the picture.
+- Why the bot has no usable hash for the players of your screenshot (Amir, HesamUNT and the two "most" players). The min
+  user explanation reproduces your screenshot exactly (same visible text, same entities) and is the only one I found in
+  Telethon's code, but I can not see the session of your bot. If, after this, a player who has written to the bot privately
+  is still bold, tell me which one: the bot logs `tg_compat: user <id> is not resolvable` for it.
 
 ## Known limitations / things worth knowing
 

@@ -2014,7 +2014,10 @@ LOG_STATS_NOT_ENOUGH_DATA = "داده کافی برای تولید آمار ای
 # Parts of a statistics line. A line the user has nothing for yet (e.g. never lost a fight) shows
 # LOG_STATS_NO_VALUE instead of failing the whole page
 LOG_STATS_NO_VALUE = "—"
-LOG_STATS_ITEM_BELLY_NAME = "[฿{} \\({}\\)]({})"  # بلی و چه کسی/چه چیزی، لینک به مورد گزارش
+LOG_STATS_ITEM_BELLY_NAME = "[฿{} \\({}\\)]({})"  # بلی و یک نام ساده، لینک به مورد گزارش
+# بلی با لینک به مورد گزارش و بعد از آن (نه داخل لینک) منشن کسی که مقابلش بوده است:
+# منشن خودش یک لینک است و تلگرام لینک داخل لینک را قبول نمی‌کند
+LOG_STATS_ITEM_BELLY_MENTION = "[฿{}]({}) \\({}\\)"
 LOG_STATS_ITEM_BELLY = "[฿{}]({})"  # بلی، لینک به مورد گزارش
 LOG_STATS_ITEM_TEXT = "[{}]({})"  # یک متن، لینک به مورد گزارش
 LOG_STATS_NAME_COUNT = "{} \\({}x\\)"  # چه کسی/چه چیزی و چند بار

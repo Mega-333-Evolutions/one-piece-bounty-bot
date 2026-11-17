@@ -2015,7 +2015,10 @@ LOG_STATS_NOT_ENOUGH_DATA = "Not enough data to generate statistics for this log
 # Parts of a statistics line. A line the user has nothing for yet (e.g. never lost a fight) shows
 # LOG_STATS_NO_VALUE instead of failing the whole page
 LOG_STATS_NO_VALUE = "—"
-LOG_STATS_ITEM_BELLY_NAME = "[฿{} \\({}\\)]({})"  # Belly and who/what, linked to the log item
+LOG_STATS_ITEM_BELLY_NAME = "[฿{} \\({}\\)]({})"  # Belly and a plain name, linked to the log item
+# Belly linked to the log item, then who it was against as a mention. A mention is a link itself
+# and Telegram does not allow a link inside a link, so it can not be inside the link of the item
+LOG_STATS_ITEM_BELLY_MENTION = "[฿{}]({}) \\({}\\)"
 LOG_STATS_ITEM_BELLY = "[฿{}]({})"  # Belly, linked to the log item
 LOG_STATS_ITEM_TEXT = "[{}]({})"  # A text, linked to the log item
 LOG_STATS_NAME_COUNT = "{} \\({}x\\)"  # Who/what and how many times
