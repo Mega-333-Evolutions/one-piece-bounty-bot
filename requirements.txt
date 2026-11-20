@@ -13,7 +13,7 @@ pymysql~=1.1.1
 # PostgreSQL driver, used when DB_TYPE=postgres (e.g. Supabase). pymysql is used when DB_TYPE=mysql
 psycopg2-binary>=2.9.10,<3
 pytz~=2023.3
-cryptography>=42.0.0
+cryptography>=50.0.2
 requests~=2.31.0
 # ffmpeg, which puts together the picture, the sound and the subtitles of the videos of the reddit posts
 # (reddit keeps them in separate files). The bot uses the ffmpeg of the system when there is one (e.g.
