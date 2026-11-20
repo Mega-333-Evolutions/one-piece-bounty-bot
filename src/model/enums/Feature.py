@@ -19,6 +19,7 @@ class Feature(IntEnum):
     BOUNTY_LOAN = 14
     PLUNDER = 15
     DAILY_REWARD = 16
+    REDDIT_POST = 17
 
     def get_description(self) -> str:
         """
@@ -52,6 +53,7 @@ class Feature(IntEnum):
             Feature.BOUNTY_LOAN,
             Feature.PLUNDER,
             Feature.DAILY_REWARD,
+            Feature.REDDIT_POST,
         ]
 
     @staticmethod
@@ -61,7 +63,7 @@ class Feature(IntEnum):
 
         :return: All the features that are restricted
         """
-        return [Feature.MESSAGE_FILTER]
+        return [Feature.MESSAGE_FILTER, Feature.REDDIT_POST]
 
     @staticmethod
     def get_non_restricted() -> list["Feature"]:
@@ -157,5 +159,6 @@ FEATURE_DESCRIPTION_MAP = LazyPhraseDict(
         Feature.BOUNTY_LOAN: "FEATURE_BOUNTY_LOAN",
         Feature.PLUNDER: "FEATURE_PLUNDER",
         Feature.DAILY_REWARD: "FEATURE_DAILY_REWARD",
+        Feature.REDDIT_POST: "FEATURE_REDDIT_POST",
     }
 )

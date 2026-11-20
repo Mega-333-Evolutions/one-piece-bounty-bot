@@ -199,6 +199,23 @@ REDDIT_USER_AGENT = Environment("REDDIT_USER_AGENT", can_be_empty=True)
 REDDIT_ONE_PIECE_SUBREDDIT = Environment("REDDIT_ONE_PIECE_SUBREDDIT", default_value="onepiece")
 # Reddit Meme Piece Subreddit
 REDDIT_MEME_PIECE_SUBREDDIT = Environment("REDDIT_MEME_PIECE_SUBREDDIT", default_value="memepiece")
+# Subreddits a reddit post is taken from when r/onepiece and r/memepiece have no new post at the
+# time of a reddit post, separated by |. Their order is chosen at random every time
+REDDIT_FALLBACK_SUBREDDITS = Environment(
+    "REDDIT_FALLBACK_SUBREDDITS", default_value="OnePiecePowerScaling|onepiecetheories"
+)
+# The most characters of the description of a reddit post that are sent (the rest is cut, with the
+# button of the post to read it all). A rich message can have 32,768 characters, but a theory of
+# r/onepiecetheories with the whole of it would fill the chat
+REDDIT_POST_MAX_DESCRIPTION_LENGTH = Environment(
+    "REDDIT_POST_MAX_DESCRIPTION_LENGTH", default_value="3000"
+)
+# Address of the Telegram Bot API the reddit posts are sent through. They are rich messages, which
+# only the Bot API (HTTP) can send, not MTProto, which the rest of the bot uses. Only change it to
+# use a Bot API server of your own (e.g. http://localhost:8081)
+TELEGRAM_BOT_API_URL = Environment(
+    "TELEGRAM_BOT_API_URL", default_value="https://api.telegram.org"
+)
 
 # SUPABASE
 # Supabase rest url

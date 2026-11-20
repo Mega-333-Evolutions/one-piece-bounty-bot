@@ -15,6 +15,11 @@ psycopg2-binary>=2.9.10,<3
 pytz~=2023.3
 cryptography>=42.0.0
 requests~=2.31.0
+# ffmpeg, which puts together the picture, the sound and the subtitles of the videos of the reddit posts
+# (reddit keeps them in separate files). The bot uses the ffmpeg of the system when there is one (e.g.
+# apt-get install ffmpeg), and the one of this package when there is not. Without any ffmpeg the videos
+# are sent as reddit's main file has them: with no sound and no subtitles
+imageio-ffmpeg>=0.5.1
 # Optional: lets the bot download images like a real Chrome (TLS handshake included) when the host
 # of the images (Fandom's, for Who's Who) refuses the plain Python downloads. The bot works without it.
 curl_cffi>=0.7

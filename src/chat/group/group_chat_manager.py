@@ -63,6 +63,7 @@ from src.model.pojo.Keyboard import Keyboard
 from src.service.devil_fruit_service import release_devil_fruit_to_user
 from src.service.group_service import is_main_group, feature_is_enabled
 from src.service.message_service import delete_message
+from src.service.reddit_service import manage_message_links
 from src.service.notification_service import send_notification
 from src.service.user_service import user_is_muted
 
@@ -128,6 +129,11 @@ async def manage(
                 update, context, user, is_callback, group_chat, check_only_muted=True
             ):
                 return
+
+    # The link to a post of reddit that someone sends in the main group is answered with the post,
+    # when the Reddit Post setting of the features of the group is on (see reddit_service.py)
+    if is_main_group(group_chat) and not is_callback:
+        await manage_message_links(update, context)
 
     if command is Command.ND:
         return

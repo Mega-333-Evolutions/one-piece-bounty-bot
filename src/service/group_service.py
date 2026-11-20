@@ -69,6 +69,34 @@ def feature_is_enabled(group_chat: GroupChat, feature: Feature) -> bool:
     )
 
 
+def main_group_feature_is_enabled(feature: Feature) -> bool:
+    """
+    Checks if a feature is enabled in the main group (the support group), for the features that
+    don't belong to a chat of a user but to the bot itself, which sends them to the main group
+    (e.g. the reddit posts). The setting is the one of the general chat of the main group, which is
+    where those messages go (not the one of a topic of it)
+    :param feature: The feature
+    :return: True if the feature is enabled, False otherwise. A main group the bot has never been
+    in (so it has no settings) has the default of the feature
+    """
+
+    main_group_id = Env.MAIN_GROUP_ID.get()
+    if main_group_id is None:
+        return feature.is_enabled_by_default()
+
+    group: Group | None = Group.get_or_none(Group.tg_group_id == str(int(main_group_id)))
+    if group is None:
+        return feature.is_enabled_by_default()
+
+    general_group_chat: GroupChat | None = GroupChat.get_or_none(
+        (GroupChat.group == group) & (GroupChat.tg_topic_id.is_null(True))
+    )
+    if general_group_chat is None:
+        return feature.is_enabled_by_default()
+
+    return feature_is_enabled(general_group_chat, feature)
+
+
 async def get_bot_admin_right(
     context: ContextTypes.DEFAULT_TYPE, group_chat: GroupChat, right: str
 ) -> BotAdminRight:

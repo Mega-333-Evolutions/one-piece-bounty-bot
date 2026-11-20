@@ -187,6 +187,7 @@ def fetch_to_file(
     timeout: float = 30,
     expect_image: bool = False,
     proxy_url: str | None = None,
+    quiet: bool = False,
 ) -> str:
     """
     Download a file the way a browser would, trying every way there is (see the top of this file)
@@ -198,6 +199,9 @@ def fetch_to_file(
     web page instead of an error, which is then not taken as a download that worked
     :param proxy_url: Url template of the image proxy to use as the last way. Default: the one of
     the IMAGE_PROXY_URL environment variable, if any
+    :param quiet: True when the file may well not be there (it is asked for to see if it is), so
+    that a failure is only a debug message and not a warning that somebody has to look at. The
+    error is raised in the same way
     :return: The name of the way that worked
     :raises: The error of the first way (urllib) if none of them worked, so that whoever calls
     this can tell a dead link (HTTPError 404) from a blocked one (HTTPError 403) as always
@@ -216,7 +220,8 @@ def fetch_to_file(
                 _check_file_is_image(file_path)
 
             if failures:
-                logging.info(f"Downloaded {url} through {way_name} after: {'; '.join(failures)}")
+                log = logging.debug if quiet else logging.info
+                log(f"Downloaded {url} through {way_name} after: {'; '.join(failures)}")
             return way_name
 
         except Exception as e:
@@ -229,7 +234,8 @@ def fetch_to_file(
             if _is_dead_link(e):
                 break
 
-    logging.warning(f"Could not download {url} - {'; '.join(failures)}")
+    log = logging.debug if quiet else logging.warning
+    log(f"Could not download {url} - {'; '.join(failures)}")
 
     # For whoever wants to show why every way failed, not only the first
     first_error.download_failures = failures

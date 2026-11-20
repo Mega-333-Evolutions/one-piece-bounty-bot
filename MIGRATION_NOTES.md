@@ -3606,6 +3606,262 @@ hash of, one never seen) and names with `_`, `.`, `-`, brackets and letters outs
   Telethon's code, but I can not see the session of your bot. If, after this, a player who has written to the bot privately
   is still bold, tell me which one: the bot logs `tg_compat: user <id> is not resolvable` for it.
 
+## Round 12 (Nov 17 to Nov 20): the Reddit posts as rich messages, a Reddit Post setting, posts from other subreddits when there is nothing new, videos with sound and subtitles, spoilers, and posts from a link
+
+What you asked, in the order of your messages (Nov 17 with the screen recording, Nov 18 with the two later ones):
+
+1. A **Reddit Post** on / off option in the Features settings of the support group.
+2. When r/onepiece and r/memepiece have no new post at the time of a Reddit post, post one from r/OnePiecePowerScaling or
+   r/onepiecetheories (you corrected the second name: it is **r/onepiecetheories**).
+3. Videos that arrive as GIFs: send them as videos.
+4. The videos have no audio track and no subtitle tracks; on Reddit they have both.
+5. Text, images, media or description hidden by a spoiler on Reddit: hide them with Telegram's own spoiler.
+6. Send the description / caption of the post too (the bot sent only the title and the media).
+7. Send the post as a **rich message**: the title in H1 and bold, no link; the media below it (several: a slideshow that you
+   swipe, like the Robin and Boa pictures of your video); below the media the description in a quote; `#Reddit`; one
+   centred button, "Reddit post link", that opens the post. A post with no media is posted without media.
+8. The button is the plain one of your screenshot (no colour, no icon).
+9. When somebody sends a link to a post of the four subreddits in the support group and the Reddit Post setting is on, the
+   bot downloads the post and posts it.
+10. The author of the quote is the **subreddit**, linked to it, and not the user who posted (this replaces the
+    `u/<username>` of your first message).
+
+### What a post looks like now
+
+```
+# **Title of the post**                  heading 1, bold, not a link
+
+[ photo / video / GIF ]                  several of them: one slideshow
+                                         (covered by a spoiler when Reddit says so)
+
+ | Description of the post               in a quote (all under a spoiler when Reddit's is)
+ | r/onepiece                            the author of the quote: the subreddit, linked to it
+
+#Reddit
+
+          [ Reddit post link ]           centred, opens the post
+```
+
+- The title is the one thing that is never hidden: Reddit shows the title of a spoiler post as well.
+- A post with no description has no quote (a quote needs a text, and I could not check that Telegram takes an empty one).
+  The linked subreddit is then in a line of its own, where the author of the quote would be.
+- A post that shares a page (a link post) shows the address of the page in the quote. A cross-post has the media and the
+  text of the original post (the cross-post itself has only a title).
+- A description longer than **3000** characters (`REDDIT_POST_MAX_DESCRIPTION_LENGTH`) is cut at the end of a paragraph, a
+  sentence or a word, with `…`; the button is how to read the rest.
+- The button opens the address of the post on reddit.com (before, the title was a link to the short `redd.it/...` one).
+- The description is Reddit's markdown turned into Telegram's formatting: bold, italic, strikethrough, code, links,
+  superscript, headings (bold), bullet and numbered lists, quotes (italic), code blocks, simple tables (as text).
+
+### 1. The Reddit Post setting (`Feature.py`, `group_service.py`, `screen_settings_features.py`, the two phrase files)
+
+**Where:** Group settings > Features of the main group (`MAIN_GROUP_ID`), in its general chat. It is a *restricted* feature
+like Message Filter: no other group shows it, and the topics of the main group do not either (the posts go to the general
+chat, so a switch in a topic would change nothing). **Look:** "Reddit Post" (English), "پست ردیت" (Persian), green when on
+and red when off like the other buttons.
+
+**Default: on**, so nothing changes until somebody turns it off. Like every feature it is stored only when it differs from
+the default (a `GroupChatEnabledDisabledFeature` row means "off"), so there is nothing to migrate.
+
+**What it turns off:** the two Reddit post timers (`REDDIT_POST_ONE_PIECE`, `REDDIT_POST_MEME_PIECE`): they run at their
+times as before and return at once, without even connecting to Reddit. And the posts from a link (section 6). Turning it on
+again needs nothing else. `main_group_feature_is_enabled()` reads it (a main group that the bot has never been in has the
+default of the feature).
+
+### 2. When there is nothing new (`reddit_service.py`, `Environment.py`)
+
+**Order:** the subreddit of the timer, then the other of the two main ones, then the fallback ones, r/OnePiecePowerScaling
+and r/onepiecetheories, **in a random order every time**. In each subreddit: the first of its 10 hot posts that is not
+stickied, not NSFW, not taken down and not posted already. The first one found is posted and the run ends.
+
+- `REDDIT_FALLBACK_SUBREDDITS` (default `OnePiecePowerScaling|onepiecetheories`, names separated by `|`, an `r/` in front is
+  taken away). The two main ones keep their variables (`REDDIT_ONE_PIECE_SUBREDDIT`, `REDDIT_MEME_PIECE_SUBREDDIT`).
+- **My reading of "the two subreddits":** r/onepiece and r/memepiece together. A timer looks in its own subreddit, then in
+  the other one, and only then in the two fallback ones. If you want each timer to go to the fallback ones straight away,
+  say so: it is one line.
+- **The bot now remembers the last 200 posts it posted (it was 20).** With four subreddits looked through in turn, their hot
+  posts are about 40, and 20 would let old ones come back as new.
+- A post that a moderator or the user took down is skipped (new; NSFW and stickied were skipped before).
+- If Reddit fails for one subreddit (a wrong name, a ban, Reddit down), the next one is tried. If nothing was posted and
+  Reddit did fail, the first error is raised as before.
+- If a subreddit has nothing new (all its hot posts were posted) and the others neither, nothing is posted, as before.
+
+### 3. Videos: why there was no sound, and why some were GIFs (`reddit_media_utils.py`)
+
+**Why:** Reddit keeps a video in **separate files**: the one the bot downloaded (`fallback_url`, `DASH_720.mp4`) is only the
+picture; the sound and the subtitles are other files. So the file the bot sent had one video track and nothing else: no
+audio track, no subtitle track. That is the cause of what you saw in the tracks, and it also fits the GIFs: Telegram plays
+a video with no sound like a GIF (I could not look at Telegram's side of it from here).
+
+**Now**, for a video (not a Reddit GIF), `prepare_reddit_video()` makes one mp4 with ffmpeg, **copying** the streams (no
+re-encoding: a few seconds, no CPU), in this order:
+
+1. **The playlist of the video** (`HLSPlaylist.m3u8`): the best quality that fits in Telegram's limit, its default audio,
+   and **every subtitle** of the playlist, each as a soft subtitle track (`mov_text`) with its language. (Reddit lists the
+   subtitles in the playlist only when the address has `f=subsAll`; the bot adds it.)
+2. If that does not work, **the files next to the video**: `DASH_<height>.mp4`, the audio (`DASH_AUDIO_128.mp4`,
+   `DASH_AUDIO_64.mp4`, `DASH_audio.mp4`, `audio`) and the captions (`wh_ben_en.vtt`), lower qualities when the first is too big.
+3. If neither works, or there is no ffmpeg: the picture alone, **as before**, with a WARNING in the log that says what failed.
+
+The file has `faststart` (it plays while it downloads). If ffmpeg cannot take the subtitles, the video goes with sound and
+without them (WARNING). Reddit GIF loops (`is_gif`) and real `.gif` files go as animations; they have no sound to put in.
+
+- **Limit:** Telegram takes 50 MB from a bot (the bot works with 48). The qualities that fit are tried (3 at most); a video
+  that is too big in all of them, or that Reddit no longer has (403 / 404 / 410), is left out of the post and **the rest of
+  the post is sent** (title, description, button). A temporary failure (Reddit or Telegram not answering) does not mark the
+  post as seen, so it is tried again at the next run (at most 2 failures per run).
+- Videos are always **uploaded** (Telegram can not take the sound and the subtitles from an address); pictures and GIFs go
+  by address when Telegram can take them from Reddit, and uploaded when it can not (see section 5). A picture that is
+  uploaded is shrunk first if it is over 9 MB, or if its width and height add up to more than 9800 (Telegram's limits).
+- **New dependency: `imageio-ffmpeg`** (in `requirements.txt`). The bot uses the `ffmpeg` of the system when there is one,
+  and the one of this package when there is not (`IMAGEIO_FFMPEG_EXE` points it to another binary). The Dockerfile of the
+  project has no ffmpeg; the package fetches one for the platform it is installed on. **Size:** the wheel is about 65 MB and
+  the installed binary about 165 MB (what I tested). If that is too much for your host, `apt-get install -y ffmpeg` in the
+  Dockerfile does the same (and `imageio-ffmpeg` can then be taken out of `requirements.txt`).
+
+### 4. Spoilers
+
+A post marked as a spoiler on Reddit (also when it is the original post of a cross-post) goes out like this:
+
+- every photo, video and GIF has Telegram's spoiler cover (`has_spoiler`), in a slideshow too;
+- the **whole description** is under one spoiler, and so are the caption of a gallery picture and the address of a link post;
+- the title stays in the open (above).
+
+And a spoiler **inside** a description (`>!hidden!<` of Reddit) becomes Telegram's spoiler on exactly that text. A spoiler
+must never be shown by mistake, so: one that Reddit's text opens and does not close, or one that goes over a blank line
+(which Reddit would not take as a spoiler), is hidden up to its end; and a description that is cut in the middle of a
+spoiler is cut with the spoiler closed. If the whole post is a spoiler, one cover is enough and there are no spoilers
+inside spoilers.
+
+### 5. How the message is sent (`rich_message_utils.py`, `reddit_service.py`)
+
+**Rich messages can only be sent through the HTTP Bot API** (`sendRichMessage`); Telethon, which the rest of the bot uses
+(MTProto), has no way to send them. So this part of the bot calls the Bot API with `requests` in a thread (the bot does not
+stand still while a video is uploaded) with the `BOT_TOKEN` it already has. Replies and topics (`reply_parameters`,
+`message_thread_id`) are supported, since the link feature needs them.
+
+- `TELEGRAM_BOT_API_URL` (default `https://api.telegram.org`): only change it to use a Bot API server of your own. It has to
+  be a **Bot API 10.3 or newer**: rich messages came with 10.1, the blocks that are sent here with 10.2 and the button block
+  ("Reddit post link") with 10.3. api.telegram.org is 10.4 (Nov 9, 2026).
+- **The bot token is never logged or kept.** The Bot API address has it in it, and `urllib3` writes that address to the log
+  at DEBUG level, so its logger is kept at WARNING; every error is cleaned of the token and raised without the original
+  one. (A test with the log at DEBUG found the token in it before this was done.)
+- Errors become the bot's usual ones: 429 > `RetryAfter`, 403 > `Forbidden`, 400 / 404 > `BadRequest`, 5xx and a connection
+  that fails > `NetworkError`, a read timeout > `TimedOut` (Telegram may have sent it: the post is marked as seen, not
+  sent twice).
+
+**Three ways to send a post**, each one only if Telegram refused the one before (`BadRequest`):
+
+1. The rich message, pictures and GIFs **by address** (Telegram takes them from Reddit), videos uploaded. (A post with
+   nothing to take by address, like a post with no media or only videos, starts at the next one.) A refusal is a WARNING.
+2. The rich message with **everything uploaded** (the pictures downloaded, shrunk if needed).
+3. **The old form**, as before the rich messages: the title as a link, `Posted by u/<user> on r/<subreddit>`, the first
+   media, and no description. A spoiler post goes without media in this form, which cannot hide it. So if Telegram refuses
+   the rich message in every way (a block it does not take, a Bot API too old), the post is still sent rather than lost,
+   and the log shows an ERROR with the reason (it reaches Sentry).
+
+What happens to a post that fails: Telegram says no for a reason that will not change (`BadRequest`) > marked as seen, so it
+does not come back at every run; a network failure or Reddit not answering > not marked, tried again next time (2 failures
+stop the run); `RetryAfter` stops the run; anything else Telegram says (the bot was removed from the group...) is raised as
+before. The post is remembered with its `message_id` as before (`RedditGroupPost`).
+
+### 6. Posts from a link (`manage_message_links` in `reddit_service.py`, called from `group_chat_manager.py`)
+
+When somebody sends in the **main group** a text message with a link to a post of the **four subreddits** (r/onepiece,
+r/memepiece, r/OnePiecePowerScaling, r/onepiecetheories), and the Reddit Post setting is on (and `ENABLE_REDDIT_POSTS`, the
+variable that already switches the Reddit features), the bot gets the post from Reddit and posts it as the rich message above
+**as a reply to the message with the link** (in the same topic).
+
+- **Links it understands:** `reddit.com/r/<sub>/comments/<id>/...` (any `www`, `old`, `np`, `m`), `reddit.com/comments/<id>`,
+  `reddit.com/gallery/<id>`, `redd.it/<id>`, and the share links of the apps (`reddit.com/r/<sub>/s/<code>`, which Reddit
+  turns into the post). Links hidden behind words are found too. A link to a **comment**, to a subreddit, a user, a picture
+  or a look-alike address is not a post link and is left alone.
+- **Silent when there is nothing to do:** a link of another subreddit, a dead, private or banned post, an NSFW or taken-down
+  post, a link in a command, a message of a bot, a Reddit Post setting that is off: no answer and nothing in the log above
+  DEBUG (a link that people send by mistake must not fill the log or Sentry). A Reddit failure that is not a dead link is a
+  WARNING; missing Reddit credentials an ERROR.
+- **Limits:** 3 links per message (more are ignored, and a message with several links gets its posts one after the other);
+  the same post asked twice at once is fetched once; the messages are served 2 at a time, and 10 at most are being served or
+  waiting in total (the links of the ones after that are ignored until there is room). The work runs in the background, so
+  a long video does not hold up the messages of the group.
+- **A post that the timer posted already is posted again** when somebody sends its link (they asked for it); a stickied post
+  is fine (the timers skip those). A post posted from a link is remembered like the others, so the timers do not repeat it.
+- **Not looked at:** the caption of a photo or a video (only text messages), and the messages of an anonymous admin or of a
+  channel (the message handler of the bot stops those before this: nobody knows who sent them).
+- A bug in this hook can not stop the message from being handled: it is caught and logged as an ERROR, and the message goes
+  on as it did before.
+
+### Files
+
+| file | what |
+|---|---|
+| `src/service/reddit_service.py` | the timer flow (setting, subreddits, fallback, remembered posts), the three ways to send, the error policy, the link feature |
+| `src/utils/reddit_post_utils.py` (new) | reads a post (title, media, description, spoiler, cross-post, link post), builds the blocks of the message, finds the post links in a text |
+| `src/utils/reddit_markdown_utils.py` (new) | Reddit markdown to rich text, spoilers kept closed, the cut of a long description |
+| `src/utils/reddit_media_utils.py` (new) | the video (playlist or files + ffmpeg), pictures, GIFs, the ffmpeg to use |
+| `src/utils/rich_message_utils.py` (new) | the blocks and the rich text, `sendRichMessage` over HTTP, errors, the token |
+| `src/utils/image_fetch.py` | `fetch_to_file(quiet=True)`: a file that may not be there is a debug message, not a WARNING |
+| `src/model/enums/Feature.py` | `REDDIT_POST = 17`, restricted |
+| `src/service/group_service.py` | `main_group_feature_is_enabled()` |
+| `src/chat/group/screens/screen_settings_features.py` | the button is not in the topics |
+| `src/chat/group/group_chat_manager.py` | calls the link feature for the main group |
+| `resources/phrases_en.py`, `resources/phrases_fa.py` | `FEATURE_REDDIT_POST` |
+| `resources/Environment.py` | `REDDIT_FALLBACK_SUBREDDITS`, `REDDIT_POST_MAX_DESCRIPTION_LENGTH`, `TELEGRAM_BOT_API_URL` |
+| `constants.py` | `REDDIT_BASE_URL` |
+| `requirements.txt` | `imageio-ffmpeg>=0.5.1` |
+
+Nothing changes in the database (no new table or column). New environment variables are all optional (defaults above).
+
+### Tested
+
+Five new test files (not delivered, **506 checks**), and every message they build is also checked field by field against
+the types of Bot API 10.4 (Telegram's own description of the API: required fields, types, allowed values):
+
+- `test_r12_pure` (140): Reddit markdown to rich text (every kind of text above, spoilers open, unclosed and cut), the layout
+  of the message for every kind of post, the parser of links, the reading of posts (galleries, cross-posts, link posts).
+- `test_r12_botapi_client` (34): the sender against a fake Bot API server (form fields, uploads, reply and topic, every
+  error code, the token never in a log, an error or a variable, also with the log at DEBUG).
+- `test_r12_service` (90): the bot's real models on SQLite, a fake Reddit (real `asyncpraw` objects) and a fake Bot API: the
+  setting (the Features screen, colours, the row only when off), the order of the subreddits and the fallback, the
+  remembered posts, skipped posts, Reddit failing, the three ways to send, the error policy.
+- `test_r12_links` (94): the link feature through the real handler of the group: every kind of link, groups and topics,
+  replies, the setting off, commands, bots, the limits, share links, dead links and the level they are logged at.
+- `test_r12_media` (148): **real ffmpeg** (the system one 6.1.1, and also the one of `imageio-ffmpeg`, 9.0.2) with a fake
+  `v.redd.it` that serves real HLS and DASH files: the mp4 that comes out has the video, the audio and every subtitle
+  track with its language (read back with ffprobe); and every failure (no ffmpeg, no playlist, a missing piece of the video,
+  no audio, no subtitles, too big, gone, a failure that goes away), pictures that need shrinking, GIFs.
+- **Mutation testing** of the link code (25 deliberate bugs) and of the media code (27): all were caught except one that is
+  not a bug (the explicit `aac_adtstoasc` filter, which ffmpeg adds by itself).
+- **Bugs the tests found in my own code, before delivery:** the bot token in the DEBUG log of `urllib3`; ffmpeg skipping
+  a missing piece of the playlist **without failing** (a video with a hole in it, now detected and sent another way); a
+  wrong count of subtitle tracks after a retry; and probes of optional files that would have flooded the log and Sentry.
+- The crawl of the 191 screens, before (zip 29) and after: no difference in any text, button, colour or error. (The same 2
+  screens fail in both: rows that the crawl invents with a field missing, a loan without a source and a Davy Back Fight
+  without a player. Not touched by this round.)
+- `test_round10.py` (387), `test_round11.py` (163), the 5 older suites (212) and the smoke test: all pass, in the same
+  final run as the new ones (13 suites, 0 failures). Python 3.11, 3.12 and 3.13 compile the changed files; black and
+  pyflakes show nothing new, and there is no new line over 99 characters.
+
+**What I could not verify:**
+
+- **Real Telegram.** The messages follow the documented fields of Bot API 10.4 and a fake server took them, but I could not
+  send one to Telegram from here. So I do not know for sure that Telegram accepts every message (a quote with only a credit,
+  a slideshow with many pictures, a spoiler cover inside a slideshow, a reply inside a topic), nor how it looks in the apps
+  (the H1, the centred button, the linked author of the quote). If Telegram refuses a message, the ways of section 5 send
+  the post anyway (in the old form at worst) and the log says why: please send me that log line if you ever see it.
+- **Real Reddit.** The names it uses (the playlist, the `DASH_*` and audio files, the `f=subsAll` parameter, the `wh_ben_en.vtt`
+  captions, the fields of a post) are the ones that Reddit and `asyncpraw` use, but I could not reach Reddit from here. If
+  Reddit serves a video differently, it falls back to the picture alone with a WARNING that says what failed.
+- **Subtitles in Telegram's player.** The mp4 has the subtitle tracks (checked with ffprobe), as Reddit's video has. I do not
+  know if Telegram's apps show a way to turn them on: as far as I know their player has none for the tracks of an mp4. If you
+  see the sound but no subtitles, that is why, and the alternative (burning the subtitles into the picture) costs time and
+  CPU, so I did not do it without asking.
+- **A video that has no sound on Reddit** has no audio track after this either, so Telegram may still show it as a GIF. (A
+  silent audio track would change that; say so if you see it.)
+- **ffmpeg of `imageio-ffmpeg`** was run on Linux x86-64 only. On another platform pip installs another binary that I did not
+  test.
+- A video that is over 48 MB in every quality is left out of the post (the rest is sent).
+
 ## Known limitations / things worth knowing
 
 A few places where Telethon's model doesn't map 1:1 onto Bot API's, in order
@@ -3649,6 +3905,12 @@ of how likely they are to matter in practice:
 - **Chat admin/membership checks** (`is_chat_admin`, `user_is_chat_member`)
   use Telethon's `get_permissions()`. This is Telethon's documented,
   standard way to do this, but wasn't testable against a live chat here.
+- **Rich messages (the Reddit posts) use the HTTP Bot API.** Telethon (MTProto) cannot send them, so
+  `rich_message_utils.py` calls `sendRichMessage` with `requests` and the `BOT_TOKEN`. The host of the bot needs HTTPS
+  access to `api.telegram.org` (or to the `TELEGRAM_BOT_API_URL` you set, a Bot API 10.3 or newer). If the host reaches
+  Telegram over MTProto but not over HTTPS, no Reddit post is sent and the log shows WARNINGs "Could not reach the Bot
+  API (sendRichMessage)". Telegram *refusing* a message is another case: that falls back to the old form (Round 12,
+  section 5).
 
 None of these affect the core game loop (sending/editing messages and
 keyboards, callback queries, commands, group admin actions, scheduled jobs) -

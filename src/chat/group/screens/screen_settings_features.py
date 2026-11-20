@@ -179,6 +179,11 @@ def get_features_keyboard(group_chat: GroupChat) -> list[list[Keyboard]]:
     else:
         features: list[Feature] = Feature.get_non_restricted()
 
+    # The reddit posts are sent to the general chat of the main group, so the switch of the topics
+    # of it would change nothing
+    if group_chat.tg_topic_id is not None and Feature.REDDIT_POST in features:
+        features.remove(Feature.REDDIT_POST)
+
     # Order alphabetically
     features.sort(key=lambda x: x.get_description())
 

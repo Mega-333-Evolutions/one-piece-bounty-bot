@@ -2313,6 +2313,7 @@ FEATURE_DEVIL_FRUIT_SELL = "فروش میوه شیطانی"
 FEATURE_BOUNTY_LOAN = "وام جایزه"
 FEATURE_PLUNDER = "غارت"
 FEATURE_DAILY_REWARD = "جایزه روزانه"
+FEATURE_REDDIT_POST = "پست ردیت"
 
 # Ability
 ABILITY_TYPE_DOC_Q_COOLDOWN_DURATION = "زمان انتظار داک کیو"

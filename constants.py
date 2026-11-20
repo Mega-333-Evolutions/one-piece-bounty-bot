@@ -2,6 +2,7 @@ import os
 
 ROOT_DIR = os.path.dirname(__file__)
 
+REDDIT_BASE_URL = "https://www.reddit.com"
 REDDIT_USER_URL_PREFIX = "https://www.reddit.com/user/"
 REDDIT_SUBREDDIT_URL_PREFIX = "https://www.reddit.com/r/"
 
